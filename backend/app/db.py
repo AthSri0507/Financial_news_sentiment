@@ -15,7 +15,12 @@ def get_engine() -> Engine | None:
         return None
 
     if _engine is None:
-        _engine = create_engine(settings.database_url, pool_pre_ping=True)
+        # Keep dependency health checks responsive even when DB networking is misconfigured.
+        _engine = create_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            connect_args={"connect_timeout": 5},
+        )
 
     return _engine
 
