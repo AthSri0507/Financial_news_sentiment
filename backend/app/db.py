@@ -1,3 +1,5 @@
+from time import sleep
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -19,7 +21,7 @@ def get_engine() -> Engine | None:
         _engine = create_engine(
             settings.database_url,
             pool_pre_ping=True,
-            connect_args={"connect_timeout": 5},
+            connect_args={"connect_timeout": 8},
         )
 
     return _engine
@@ -30,9 +32,16 @@ def check_db_health() -> tuple[bool, str]:
     if engine is None:
         return True, "database not configured"
 
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        return True, "database ok"
-    except Exception as exc:  # pragma: no cover - defensive for infra failures
-        return False, f"database unavailable: {exc}"
+    last_error: Exception | None = None
+
+    for attempt in range(2):
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            return True, "database ok"
+        except Exception as exc:  # pragma: no cover - defensive for infra failures
+            last_error = exc
+            if attempt == 0:
+                sleep(0.4)
+
+    return False, f"database unavailable: {last_error}"
