@@ -1,0 +1,25 @@
+name: Scheduled Ingestion
+
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  trigger-ingestion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ingestion endpoint
+        env:
+          BASE_URL: ${{ secrets.APP_BASE_URL }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$INGEST_TOKEN" ]; then
+            echo "APP_BASE_URL or INGEST_TOKEN is missing"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            -X POST "$BASE_URL/ingest/run" \
+            -H "Authorization: Bearer $INGEST_TOKEN"
