@@ -4,7 +4,6 @@ sqlalchemy==2.0.43
 psycopg[binary]==3.2.13
 pydantic-settings==2.10.1
 alembic==1.16.5
-feedparser==6.0.10
 requests==2.31.0
 praw==7.7.1
 
