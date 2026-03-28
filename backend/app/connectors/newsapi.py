@@ -26,6 +26,20 @@ class NewsAPIConnector(Connector):
         "Meta": ["META", "Facebook", "Meta Platforms"],
         "Nvidia": ["NVDA", "Nvidia Corp"],
         "Intel": ["INTC", "Intel Corp"],
+        "Reliance": ["Reliance Industries", "RIL", "RELIANCE"],
+        "TCS": ["Tata Consultancy Services", "TCS.NS"],
+        "Infosys": ["INFY", "Infosys Ltd", "Infosys Limited"],
+        "HDFC Bank": ["HDB", "HDFC", "HDFC Bank Ltd"],
+        "ICICI Bank": ["IBN", "ICICI", "ICICI Bank Ltd"],
+        "State Bank of India": ["SBI", "SBIN", "SBIN.NS"],
+        "Bharti Airtel": ["Airtel", "BHARTIARTL", "BHARTIARTL.NS"],
+        "Larsen & Toubro": ["L&T", "LT", "LT.NS"],
+        "ITC": ["ITC Ltd", "ITC.NS"],
+        "Hindustan Unilever": ["HUL", "Hindustan Unilever Ltd", "HINDUNILVR"],
+        "Bajaj Finance": ["BAJFINANCE", "BAJFINANCE.NS"],
+        "Adani Enterprises": ["ADANIENT", "ADANIENT.NS"],
+        "Sun Pharma": ["Sun Pharmaceutical", "SUNPHARMA", "SUNPHARMA.NS"],
+        "Wipro": ["WIT", "WIPRO", "WIPRO.NS"],
     }
 
     def __init__(self, api_key: Optional[str] = None):
@@ -55,8 +69,12 @@ class NewsAPIConnector(Connector):
 
         # Build search query with company aliases
         search_terms = [company]
-        if company in self.COMPANY_ALIASES:
-            search_terms.extend(self.COMPANY_ALIASES[company])
+        alias_key = next(
+            (name for name in self.COMPANY_ALIASES if name.lower() == company.lower()),
+            None,
+        )
+        if alias_key:
+            search_terms.extend(self.COMPANY_ALIASES[alias_key])
 
         query = " OR ".join(search_terms)
         log.info(f"Searching NewsAPI for: {query}")

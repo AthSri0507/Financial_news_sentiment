@@ -25,6 +25,24 @@ class MarketauxConnector(Connector):
         "Meta": "META",
         "Nvidia": "NVDA",
         "Intel": "INTC",
+        "Reliance": "RELIANCE.NSE",
+        "Reliance Industries": "RELIANCE.NSE",
+        "TCS": "TCS.NSE",
+        "Tata Consultancy Services": "TCS.NSE",
+        "Infosys": "INFY.NSE",
+        "HDFC Bank": "HDFCBANK.NSE",
+        "ICICI Bank": "ICICIBANK.NSE",
+        "State Bank of India": "SBIN.NSE",
+        "SBI": "SBIN.NSE",
+        "Bharti Airtel": "BHARTIARTL.NSE",
+        "Larsen & Toubro": "LT.NSE",
+        "L&T": "LT.NSE",
+        "ITC": "ITC.NSE",
+        "Hindustan Unilever": "HINDUNILVR.NSE",
+        "Bajaj Finance": "BAJFINANCE.NSE",
+        "Adani Enterprises": "ADANIENT.NSE",
+        "Sun Pharma": "SUNPHARMA.NSE",
+        "Wipro": "WIPRO.NSE",
     }
 
     def __init__(self, api_key: Optional[str] = None):
@@ -48,7 +66,11 @@ class MarketauxConnector(Connector):
             log.error("Marketaux not configured; skipping")
             return []
 
-        symbol = self.COMPANY_TO_SYMBOL.get(company)
+        symbol_key = next(
+            (name for name in self.COMPANY_TO_SYMBOL if name.lower() == company.lower()),
+            None,
+        )
+        symbol = self.COMPANY_TO_SYMBOL.get(symbol_key) if symbol_key else None
         try:
             payload = retry_with_backoff(
                 self._fetch_news,
