@@ -49,11 +49,17 @@ def check_db_health() -> tuple[bool, str]:
 
 def init_db():
     """Initialize database tables on application startup"""
+    import logging
+    log = logging.getLogger(__name__)
+    
     try:
         from .models import Base
         engine = get_engine()
-        if engine:
-            Base.metadata.create_all(engine)
+        if engine is None:
+            log.warning("Database not configured (DATABASE_URL not set)")
+            return
+        log.info("Creating database tables...")
+        Base.metadata.create_all(engine)
+        log.info("Database initialization complete")
     except Exception as exc:
-        import logging
-        logging.error(f"Failed to initialize database: {exc}")
+        log.error(f"Failed to initialize database: {exc}", exc_info=True)
