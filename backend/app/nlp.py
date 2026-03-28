@@ -237,16 +237,12 @@ class SentimentEngine:
         if finbert_result:
             fin_label, fin_score, fin_meta = finbert_result
             confidence = float(fin_meta.get("confidence", 0.0))
-            if confidence >= self.finbert_min_confidence:
-                final_label = fin_label
-                final_score = fin_score
-                final_source = "finbert"
-                fallback_reason = None
-            else:
-                final_label = lex_label
-                final_score = lex_score
-                final_source = "lexicon"
-                fallback_reason = "low_finbert_confidence"
+            # Policy: if FinBERT is available, trust FinBERT as final scorer.
+            final_label = fin_label
+            final_score = fin_score
+            final_source = "finbert"
+            fallback_reason = None
+            low_confidence = confidence < self.finbert_min_confidence
         else:
             fin_label, fin_score, fin_meta = "neutral", 0.0, {
                 "model": "finbert",
@@ -257,6 +253,7 @@ class SentimentEngine:
             final_score = lex_score
             final_source = "lexicon"
             fallback_reason = "finbert_unavailable"
+            low_confidence = None
             if finbert_error:
                 fin_meta["error"] = finbert_error
 
@@ -284,6 +281,7 @@ class SentimentEngine:
             "comparison": {
                 "agreement": agreement,
                 "score_gap": round(abs(fin_score - lex_score), 4) if finbert_result else None,
+                "low_confidence": low_confidence,
             },
         }
 

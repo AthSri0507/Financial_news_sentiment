@@ -16,7 +16,8 @@
 
 ## NLP Transition Mode
 - Primary scorer: FinBERT (optional) with lexicon fallback
-- Fallback trigger: FinBERT confidence below `NLP_FINBERT_MIN_CONFIDENCE`
+- Fallback trigger: FinBERT unavailable or inference error
+- `NLP_FINBERT_MIN_CONFIDENCE` now marks low-confidence FinBERT predictions in metadata (`comparison.low_confidence`), but does not force lexicon fallback
 - Comparison fields (FinBERT + lexicon) are stored in `processed_items.model_confidence`
 
 Set in environment:
