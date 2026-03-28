@@ -73,10 +73,19 @@ def ingest_run(
     if not expected_token:
         raise HTTPException(status_code=503, detail="ingestion token not configured")
 
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing bearer token")
+    auth_value = (authorization or "").strip()
+    if not auth_value:
+        raise HTTPException(status_code=401, detail="missing authorization token")
 
-    token = authorization.removeprefix("Bearer ").strip()
+    # Accept both "Bearer <token>" and raw token for easier manual testing.
+    if auth_value.lower().startswith("bearer "):
+        token = auth_value[7:].strip()
+    else:
+        token = auth_value
+
+    if not token:
+        raise HTTPException(status_code=401, detail="missing authorization token")
+
     if token != expected_token:
         raise HTTPException(status_code=401, detail="invalid token")
 
