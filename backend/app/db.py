@@ -21,7 +21,7 @@ def get_engine() -> Engine | None:
         _engine = create_engine(
             settings.database_url,
             pool_pre_ping=True,
-            connect_args={"connect_timeout": 8},
+            connect_args={"connect_timeout": 8, "prefer_ipv4": True},
         )
 
     return _engine
