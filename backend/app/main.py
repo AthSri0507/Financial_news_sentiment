@@ -12,6 +12,7 @@ from .connectors.rss import RSSConnector
 from .connectors.newsapi import NewsAPIConnector
 from .connectors.marketaux import MarketauxConnector
 from .connectors.reddit import RedditConnector
+from .analytics import get_ranked_items, get_timeline, run_query
 from .enrichment import run_enrichment_pipeline
 from .ingestion import store_raw_items
 
@@ -230,5 +231,112 @@ def enrich_run(
     except Exception as exc:
         log.error("Enrichment failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"enrichment error: {exc}")
+    finally:
+        session.close()
+
+
+@app.post("/query")
+def query_run(
+    company: str = "Apple",
+    bucket: str = "day",
+    window_days: int = 7,
+    item_limit: int = 20,
+    recompute_timeline: bool = False,
+) -> dict[str, object]:
+    """Run impact-scored query response with timeline + ranked items."""
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="database not configured")
+
+    session = Session(engine)
+    try:
+        result = run_query(
+            db_session=session,
+            company=company,
+            bucket=bucket,
+            window_days=window_days,
+            item_limit=item_limit,
+            recompute_timeline=recompute_timeline,
+        )
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log.error("Query pipeline failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"query error: {exc}")
+    finally:
+        session.close()
+
+
+@app.get("/items")
+def query_items(
+    company: str = "Apple",
+    window_days: int = 7,
+    limit: int = 20,
+) -> dict[str, object]:
+    """Return impact-ranked items for a company and time window."""
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="database not configured")
+
+    session = Session(engine)
+    try:
+        items = get_ranked_items(
+            db_session=session,
+            company=company,
+            window_days=window_days,
+            limit=limit,
+        )
+        return {
+            "status": "success",
+            "company": company,
+            "window_days": window_days,
+            "count": len(items),
+            "items": items,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        log.error("Items endpoint failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"items error: {exc}")
+    finally:
+        session.close()
+
+
+@app.get("/timeline")
+def query_timeline(
+    company: str = "Apple",
+    bucket: str = "day",
+    window_days: int = 7,
+    recompute: bool = False,
+) -> dict[str, object]:
+    """Return impact-weighted sentiment timeline."""
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="database not configured")
+
+    session = Session(engine)
+    try:
+        timeline = get_timeline(
+            db_session=session,
+            company=company,
+            bucket=bucket,
+            window_days=window_days,
+            recompute=recompute,
+        )
+        return {
+            "status": "success",
+            "company": company,
+            "bucket": bucket,
+            "window_days": window_days,
+            "count": len(timeline),
+            "timeline": timeline,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log.error("Timeline endpoint failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"timeline error: {exc}")
     finally:
         session.close()

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, DateTime, JSON, Text, Index, Float, ForeignKey
+from sqlalchemy import Column, String, DateTime, JSON, Text, Index, Float, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 
 from sqlalchemy.orm import declarative_base
@@ -67,4 +67,35 @@ class ProcessedItem(Base):
 
     __table_args__ = (
         Index("ix_processed_items_company_processed_at", "company", "processed_at"),
+    )
+
+
+class TimeSeriesSentiment(Base):
+    """Aggregated impact-weighted sentiment by time bucket."""
+
+    __tablename__ = "time_series_sentiment"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company = Column(String(255), nullable=False, index=True)
+    bucket_size = Column(String(20), nullable=False, index=True)  # hour/day
+    bucket_start = Column(DateTime, nullable=False, index=True)
+    bucket_end = Column(DateTime, nullable=False)
+
+    weighted_sentiment = Column(Float, nullable=False)
+    item_count = Column(Integer, nullable=False, default=0)
+    source_mix = Column(JSON, nullable=False)
+    volatility_proxy = Column(Float, nullable=False, default=0.0)
+    mean_impact = Column(Float, nullable=False, default=0.0)
+
+    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        Index(
+            "ix_time_series_company_bucket_unique",
+            "company",
+            "bucket_size",
+            "bucket_start",
+            unique=True,
+        ),
+        Index("ix_time_series_company_bucket_start", "company", "bucket_start"),
     )

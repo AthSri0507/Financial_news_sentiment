@@ -13,6 +13,10 @@
 - `GET /health/dependencies`
 - `POST /ingest/run` (requires `Authorization: Bearer <INGEST_TOKEN>`)
    - query params: `company=Apple`, `sources=rss,newsapi,marketaux,reddit`
+- `POST /enrich/run` (requires `Authorization: Bearer <INGEST_TOKEN>`)
+- `POST /query` (impact-scored query response with timeline + ranked items)
+- `GET /items` (impact-ranked item list)
+- `GET /timeline` (impact-weighted sentiment timeline)
 
 ## NLP Transition Mode
 - Primary scorer: FinBERT (optional) with lexicon fallback
