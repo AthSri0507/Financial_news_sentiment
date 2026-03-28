@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import requests
+
 
 DEFAULT_COMPANY_ALIASES: dict[str, list[str]] = {
     "apple": ["apple", "aapl", "apple inc", "iphone", "ipad", "mac"],
@@ -187,51 +189,163 @@ def relevance_score(company: str, text: str, entities: list[str]) -> float:
 
 
 class SentimentEngine:
-    """FinBERT-first sentiment analyzer with lightweight lexical fallback."""
+    """FinBERT-primary sentiment analyzer with lexicon fallback."""
 
-    def __init__(self, prefer_finbert: bool = True):
+    HF_INFERENCE_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
+
+    def __init__(
+        self,
+        prefer_finbert: bool = True,
+        finbert_min_confidence: float = 0.62,
+        hf_api_key: str | None = None,
+    ):
+        self.prefer_finbert = prefer_finbert
+        self.finbert_min_confidence = max(0.0, min(finbert_min_confidence, 1.0))
+        self.hf_api_key = hf_api_key
         self.mode = "lexicon"
         self._classifier = None
 
         if prefer_finbert:
-            try:
-                from transformers import pipeline  # type: ignore
+            self.mode = "finbert_primary"
+            if not hf_api_key:
+                # Optional local fallback for environments where transformers is available.
+                try:
+                    from transformers import pipeline  # type: ignore
 
-                self._classifier = pipeline(
-                    "sentiment-analysis",
-                    model="ProsusAI/finbert",
-                    tokenizer="ProsusAI/finbert",
-                )
-                self.mode = "finbert"
-            except Exception:
-                self._classifier = None
-                self.mode = "lexicon"
+                    self._classifier = pipeline(
+                        "sentiment-analysis",
+                        model="ProsusAI/finbert",
+                        tokenizer="ProsusAI/finbert",
+                    )
+                except Exception:
+                    self._classifier = None
 
     def analyze(self, text: str) -> tuple[str, float, dict[str, Any]]:
-        if self.mode == "finbert" and self._classifier is not None:
+        lex_label, lex_score, lex_meta = self._lexical(text)
+
+        finbert_result = None
+        finbert_error = None
+        if self.prefer_finbert:
             try:
-                result = self._classifier(text[:512])[0]
-                label = (result.get("label") or "neutral").lower()
-                score = float(result.get("score") or 0.5)
-
-                mapped_label = label
-                mapped_score = score
-                if label == "positive":
-                    mapped_score = score
-                elif label == "negative":
-                    mapped_score = -score
-                else:
-                    mapped_label = "neutral"
-                    mapped_score = 0.0
-
-                return mapped_label, round(mapped_score, 4), {
-                    "model": "finbert",
-                    "confidence": round(score, 4),
-                }
+                finbert_result = self._analyze_finbert(text)
             except Exception as exc:
-                return self._lexical(text, error=str(exc))
+                finbert_error = str(exc)
 
-        return self._lexical(text)
+        if finbert_result:
+            fin_label, fin_score, fin_meta = finbert_result
+            confidence = float(fin_meta.get("confidence", 0.0))
+            if confidence >= self.finbert_min_confidence:
+                final_label = fin_label
+                final_score = fin_score
+                final_source = "finbert"
+                fallback_reason = None
+            else:
+                final_label = lex_label
+                final_score = lex_score
+                final_source = "lexicon"
+                fallback_reason = "low_finbert_confidence"
+        else:
+            fin_label, fin_score, fin_meta = "neutral", 0.0, {
+                "model": "finbert",
+                "confidence": 0.0,
+                "available": False,
+            }
+            final_label = lex_label
+            final_score = lex_score
+            final_source = "lexicon"
+            fallback_reason = "finbert_unavailable"
+            if finbert_error:
+                fin_meta["error"] = finbert_error
+
+        agreement = (fin_label == lex_label) if finbert_result else None
+
+        comparison_meta: dict[str, Any] = {
+            "model": final_source,
+            "final_source": final_source,
+            "confidence": round(
+                float(fin_meta.get("confidence", lex_meta.get("confidence", 0.0))),
+                4,
+            ),
+            "finbert_threshold": self.finbert_min_confidence,
+            "fallback_reason": fallback_reason,
+            "finbert": {
+                "label": fin_label,
+                "score": round(fin_score, 4),
+                **fin_meta,
+            },
+            "lexicon": {
+                "label": lex_label,
+                "score": round(lex_score, 4),
+                **lex_meta,
+            },
+            "comparison": {
+                "agreement": agreement,
+                "score_gap": round(abs(fin_score - lex_score), 4) if finbert_result else None,
+            },
+        }
+
+        return final_label, round(final_score, 4), comparison_meta
+
+    def _analyze_finbert(self, text: str) -> tuple[str, float, dict[str, Any]]:
+        if self.hf_api_key:
+            headers = {
+                "Authorization": f"Bearer {self.hf_api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "inputs": text[:1500],
+                "options": {"wait_for_model": True},
+            }
+            response = requests.post(
+                self.HF_INFERENCE_URL,
+                headers=headers,
+                json=payload,
+                timeout=20,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Most responses are [[{label, score}, ...]] from text-classification models.
+            if isinstance(data, list) and data and isinstance(data[0], list):
+                candidates = data[0]
+            elif isinstance(data, list):
+                candidates = data
+            else:
+                raise RuntimeError("unexpected_finbert_response")
+
+            if not candidates:
+                raise RuntimeError("empty_finbert_response")
+
+            top = max(candidates, key=lambda x: float(x.get("score", 0.0)))
+            return self._normalize_finbert_label(top)
+
+        if self._classifier is not None:
+            top = self._classifier(text[:512])[0]
+            return self._normalize_finbert_label(top)
+
+        raise RuntimeError("finbert_not_configured")
+
+    def _normalize_finbert_label(self, result: dict[str, Any]) -> tuple[str, float, dict[str, Any]]:
+        raw_label = str(result.get("label") or "neutral").lower()
+        confidence = float(result.get("score") or 0.0)
+
+        # FinBERT labels are usually positive/neutral/negative.
+        if raw_label.startswith("pos"):
+            label = "positive"
+            score = confidence
+        elif raw_label.startswith("neg"):
+            label = "negative"
+            score = -confidence
+        else:
+            label = "neutral"
+            score = 0.0
+
+        return label, round(score, 4), {
+            "model": "finbert",
+            "confidence": round(confidence, 4),
+            "available": True,
+            "raw_label": raw_label,
+        }
 
     def _lexical(self, text: str, error: str | None = None) -> tuple[str, float, dict[str, Any]]:
         tokens = re.findall(r"[a-zA-Z]+", text.lower())

@@ -15,13 +15,19 @@ def run_enrichment_pipeline(
     min_relevance: float = 0.25,
     max_text_chars: int = 6000,
     prefer_finbert: bool = False,
+    finbert_min_confidence: float = 0.62,
+    hf_api_key: str | None = None,
 ) -> dict[str, object]:
     """Enrich recent raw items and persist processed results."""
 
     limit = max(1, min(limit, 200))
     max_text_chars = max(500, min(max_text_chars, 20000))
 
-    sentiment_engine = SentimentEngine(prefer_finbert=prefer_finbert)
+    sentiment_engine = SentimentEngine(
+        prefer_finbert=prefer_finbert,
+        finbert_min_confidence=finbert_min_confidence,
+        hf_api_key=hf_api_key,
+    )
 
     existing_processed = {
         raw_id for (raw_id,) in db_session.query(ProcessedItem.raw_item_id).all()

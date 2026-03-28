@@ -221,6 +221,8 @@ def enrich_run(
             min_relevance=effective_relevance,
             max_text_chars=settings.nlp_max_text_chars,
             prefer_finbert=settings.nlp_prefer_finbert,
+            finbert_min_confidence=settings.nlp_finbert_min_confidence,
+            hf_api_key=settings.huggingface_api_key,
         )
 
         result["timestamp"] = datetime.now(timezone.utc).isoformat()
