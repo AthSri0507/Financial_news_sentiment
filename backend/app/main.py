@@ -10,6 +10,7 @@ from .config import get_settings
 from .db import check_db_health, get_engine, init_db
 from .connectors.rss import RSSConnector
 from .connectors.newsapi import NewsAPIConnector
+from .connectors.marketaux import MarketauxConnector
 from .connectors.reddit import RedditConnector
 from .enrichment import run_enrichment_pipeline
 from .ingestion import store_raw_items
@@ -67,7 +68,7 @@ def ingest_run(
 
     Query parameters:
     - company: Company name to search for (default: "Apple")
-    - sources: Comma-separated list of sources (rss, newsapi, reddit)
+    - sources: Comma-separated list of sources (rss, newsapi, marketaux, reddit)
     """
     expected_token = settings.ingest_token
 
@@ -128,6 +129,21 @@ def ingest_run(
                     log.info(f"NewsAPI: {stored} items stored")
             except Exception as exc:
                 log.error(f"NewsAPI ingestion failed: {exc}")
+
+        # Marketaux Connector (requires API key)
+        if "marketaux" in source_list:
+            try:
+                marketaux_key = getattr(settings, "marketaux_api_key", None)
+                if not marketaux_key:
+                    log.warning("Marketaux key not configured; skipping")
+                else:
+                    marketaux_connector = MarketauxConnector(api_key=marketaux_key)
+                    items = marketaux_connector.fetch(company=company, sectors=["Technology"], limit=10)
+                    stored = store_raw_items(db_session, items)
+                    total_stored += stored
+                    log.info(f"Marketaux: {stored} items stored")
+            except Exception as exc:
+                log.error(f"Marketaux ingestion failed: {exc}")
 
         # Reddit Connector (requires credentials)
         if "reddit" in source_list:

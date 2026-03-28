@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     # API Keys for connectors
     newsapi_key: str | None = Field(default=None)
+    marketaux_api_key: str | None = Field(default=None)
     reddit_client_id: str | None = Field(default=None)
     reddit_client_secret: str | None = Field(default=None)
 
