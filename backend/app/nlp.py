@@ -191,7 +191,10 @@ def relevance_score(company: str, text: str, entities: list[str]) -> float:
 class SentimentEngine:
     """FinBERT-primary sentiment analyzer with lexicon fallback."""
 
-    HF_INFERENCE_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
+    HF_INFERENCE_URLS = [
+        "https://router.huggingface.co/hf-inference/models/ProsusAI/finbert",
+        "https://api-inference.huggingface.co/models/ProsusAI/finbert",
+    ]
 
     def __init__(
         self,
@@ -296,14 +299,27 @@ class SentimentEngine:
                 "inputs": text[:1500],
                 "options": {"wait_for_model": True},
             }
-            response = requests.post(
-                self.HF_INFERENCE_URL,
-                headers=headers,
-                json=payload,
-                timeout=20,
-            )
-            response.raise_for_status()
-            data = response.json()
+            last_error: Exception | None = None
+            data = None
+            for url in self.HF_INFERENCE_URLS:
+                try:
+                    response = requests.post(
+                        url,
+                        headers=headers,
+                        json=payload,
+                        timeout=20,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    continue
+
+            if data is None:
+                if last_error:
+                    raise last_error
+                raise RuntimeError("finbert_inference_unavailable")
 
             # Most responses are [[{label, score}, ...]] from text-classification models.
             if isinstance(data, list) and data and isinstance(data[0], list):
