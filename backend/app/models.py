@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, DateTime, JSON, Text, Boolean, Index
+from sqlalchemy import Column, String, DateTime, JSON, Text, Index, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
 from sqlalchemy.orm import declarative_base
@@ -39,4 +39,32 @@ class RawItem(Base):
             "url",
             unique=True,
         ),
+    )
+
+
+class ProcessedItem(Base):
+    """NLP-enriched view of a raw ingested item"""
+
+    __tablename__ = "processed_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    raw_item_id = Column(UUID(as_uuid=True), ForeignKey("raw_items.id"), nullable=False, unique=True, index=True)
+    company = Column(String(255), nullable=False, index=True)
+    cleaned_text = Column(Text, nullable=False)
+    language = Column(String(10), nullable=False, default="en", index=True)
+    is_noise = Column(String(10), nullable=False, default="false")
+
+    summary = Column(Text, nullable=False)
+    sentiment_label = Column(String(20), nullable=False, index=True)
+    sentiment_score = Column(Float, nullable=False)
+    relevance_score = Column(Float, nullable=False, index=True)
+
+    entities = Column(JSON, nullable=True)
+    model_confidence = Column(JSON, nullable=True)
+    pipeline_flags = Column(JSON, nullable=True)
+
+    processed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_processed_items_company_processed_at", "company", "processed_at"),
     )

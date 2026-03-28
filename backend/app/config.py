@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     reddit_client_id: str | None = Field(default=None)
     reddit_client_secret: str | None = Field(default=None)
 
+    # NLP enrichment pipeline settings
+    nlp_prefer_finbert: bool = Field(default=False)
+    nlp_max_items_per_run: int = Field(default=30)
+    nlp_max_text_chars: int = Field(default=6000)
+    nlp_min_relevance: float = Field(default=0.25)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

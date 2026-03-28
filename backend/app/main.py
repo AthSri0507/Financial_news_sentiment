@@ -11,6 +11,7 @@ from .db import check_db_health, get_engine, init_db
 from .connectors.rss import RSSConnector
 from .connectors.newsapi import NewsAPIConnector
 from .connectors.reddit import RedditConnector
+from .enrichment import run_enrichment_pipeline
 from .ingestion import store_raw_items
 
 log = logging.getLogger(__name__)
@@ -159,3 +160,57 @@ def ingest_run(
     except Exception as exc:
         log.error(f"Ingestion failed: {exc}")
         raise HTTPException(status_code=500, detail=f"ingestion error: {exc}")
+
+
+@app.post("/enrich/run")
+def enrich_run(
+    authorization: str | None = Header(default=None),
+    company: str = "Apple",
+    limit: int = 30,
+    min_relevance: float | None = None,
+) -> dict[str, object]:
+    """Run milestone-2 NLP enrichment and persist to processed_items."""
+    expected_token = settings.ingest_token
+
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="ingestion token not configured")
+
+    auth_value = (authorization or "").strip()
+    if not auth_value:
+        raise HTTPException(status_code=401, detail="missing authorization token")
+
+    if auth_value.lower().startswith("bearer "):
+        token = auth_value[7:].strip()
+    else:
+        token = auth_value
+
+    if token != expected_token:
+        raise HTTPException(status_code=401, detail="invalid token")
+
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="database not configured")
+
+    session = Session(engine)
+    try:
+        effective_limit = min(limit, settings.nlp_max_items_per_run)
+        effective_relevance = (
+            settings.nlp_min_relevance if min_relevance is None else min_relevance
+        )
+
+        result = run_enrichment_pipeline(
+            db_session=session,
+            company=company,
+            limit=effective_limit,
+            min_relevance=effective_relevance,
+            max_text_chars=settings.nlp_max_text_chars,
+            prefer_finbert=settings.nlp_prefer_finbert,
+        )
+
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return result
+    except Exception as exc:
+        log.error("Enrichment failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"enrichment error: {exc}")
+    finally:
+        session.close()
