@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     newsapi_key: str | None = Field(default=None)
     reddit_client_id: str | None = Field(default=None)
     reddit_client_secret: str | None = Field(default=None)
-    x_bearer_token: str | None = Field(default=None)
 
     # NLP enrichment pipeline settings
     nlp_prefer_finbert: bool = Field(default=False)

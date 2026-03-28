@@ -11,7 +11,6 @@ from .db import check_db_health, get_engine, init_db
 from .connectors.rss import RSSConnector
 from .connectors.newsapi import NewsAPIConnector
 from .connectors.reddit import RedditConnector
-from .connectors.twitter import TwitterConnector
 from .enrichment import run_enrichment_pipeline
 from .ingestion import store_raw_items
 
@@ -68,7 +67,7 @@ def ingest_run(
 
     Query parameters:
     - company: Company name to search for (default: "Apple")
-    - sources: Comma-separated list of sources (rss, newsapi, reddit, x/twitter)
+    - sources: Comma-separated list of sources (rss, newsapi, reddit)
     """
     expected_token = settings.ingest_token
 
@@ -148,21 +147,6 @@ def ingest_run(
                     log.info(f"Reddit: {stored} items stored")
             except Exception as exc:
                 log.error(f"Reddit ingestion failed: {exc}")
-
-        # X (Twitter) Connector (requires bearer token)
-        if "x" in source_list or "twitter" in source_list:
-            try:
-                x_bearer = getattr(settings, "x_bearer_token", None)
-                if not x_bearer:
-                    log.warning("X bearer token not configured; skipping")
-                else:
-                    twitter_connector = TwitterConnector(bearer_token=x_bearer)
-                    items = twitter_connector.fetch(company=company, sectors=["Technology"], limit=10)
-                    stored = store_raw_items(db_session, items)
-                    total_stored += stored
-                    log.info(f"X: {stored} items stored")
-            except Exception as exc:
-                log.error(f"X ingestion failed: {exc}")
 
         db_session.close()
 

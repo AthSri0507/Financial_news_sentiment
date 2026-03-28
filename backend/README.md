@@ -12,7 +12,6 @@
 - `GET /health`
 - `GET /health/dependencies`
 - `POST /ingest/run` (requires `Authorization: Bearer <INGEST_TOKEN>`)
-  - Query params: `company=Apple` (default), `sources=rss,newsapi,reddit,x` (comma-separated)
 
 ## Migration workflow (Alembic)
 Generate a revision:
