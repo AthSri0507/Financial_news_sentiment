@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Optional
+from urllib.parse import quote_plus
 from xml.etree import ElementTree as ET
 
 import requests
@@ -19,11 +20,10 @@ class RSSConnector(Connector):
 
     # Curated finance RSS feeds
     DEFAULT_FEEDS = {
-        "BBC News Business": "http://feeds.bbc.co.uk/news/business/rss.xml",
-        "Reuters Business": "https://feeds.reuters.com/reuters/businessNews",
+        "BBC News Business": "https://feeds.bbci.co.uk/news/business/rss.xml",
         "CNBC Top News": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "Financial Times Markets": "https://feeds.ft.com/markets",
-        "Yahoo Finance": "https://feeds.finance.yahoo.com/rss/2.0/headline",
+        "MarketWatch Top Stories": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "NPR Business": "https://feeds.npr.org/1006/rss.xml",
     }
 
     def __init__(self, custom_feeds: Optional[dict[str, str]] = None):
@@ -45,7 +45,16 @@ class RSSConnector(Connector):
         company_lower = company.lower()
         company_terms = company_lower.split()  # e.g., "Apple Inc" -> ["apple", "inc"]
 
-        for feed_name, feed_url in self.feeds.items():
+        # Google News RSS is usually the most reliable source for company-specific stories.
+        company_query = quote_plus(company)
+        feeds_to_read = {
+            f"Google News ({company})": (
+                f"https://news.google.com/rss/search?q={company_query}&hl=en-US&gl=US&ceid=US:en"
+            ),
+            **self.feeds,
+        }
+
+        for feed_name, feed_url in feeds_to_read.items():
             if len(items) >= limit:
                 break
 
