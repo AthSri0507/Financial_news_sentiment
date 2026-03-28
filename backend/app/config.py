@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     database_url: str | None = Field(default=None)
     ingest_token: str | None = Field(default=None)
 
+    # API Keys for connectors
+    newsapi_key: str | None = Field(default=None)
+    reddit_client_id: str | None = Field(default=None)
+    reddit_client_secret: str | None = Field(default=None)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

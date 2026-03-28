@@ -45,3 +45,15 @@ def check_db_health() -> tuple[bool, str]:
                 sleep(0.4)
 
     return False, f"database unavailable: {last_error}"
+
+
+def init_db():
+    """Initialize database tables on application startup"""
+    try:
+        from .models import Base
+        engine = get_engine()
+        if engine:
+            Base.metadata.create_all(engine)
+    except Exception as exc:
+        import logging
+        logging.error(f"Failed to initialize database: {exc}")
