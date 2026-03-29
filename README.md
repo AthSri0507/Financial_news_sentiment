@@ -179,10 +179,4 @@ Invoke-RestMethod "http://127.0.0.1:8000/health/dependencies" | ConvertTo-Json -
 - Rotate tokens if they were ever shared in plaintext.
 - Keep [backend/.env](backend/.env) out of git.
 
-## Milestone Status
 
-- Milestone 1: Ingestion MVP complete
-- Milestone 2: NLP enrichment complete
-- Milestone 3: Impact/timeline analytics complete
-- Milestone 4: Dashboard + cross-sector analytics complete
-- Milestone 3.5/5: Cloud migration hardening and release documentation in progress
