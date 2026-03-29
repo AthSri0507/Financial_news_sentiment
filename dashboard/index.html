@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseScope | Financial Sector Sentiment</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <div class="ambient-bg"></div>
+  <main class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow"></p>
+        <h1>PulseScope</h1>
+        <p class="subtitle">Cross-sector finance sentiment with lead-lag analytics and explainable impact scoring.</p>
+      </div>
+      <div class="status-badge" id="healthBadge">Checking API...</div>
+    </header>
+
+    <section class="panel controls">
+      <h2>Search</h2>
+      <div class="control-grid">
+        <label>
+          API Base URL
+          <input id="apiBaseUrl" type="text" placeholder="http://127.0.0.1:8000" />
+        </label>
+        <label>
+          Company
+          <input id="company" type="text" value="Apple" />
+        </label>
+        <label>
+          Time Window (days)
+          <input id="windowDays" type="number" min="1" max="90" value="14" />
+        </label>
+        <label>
+          Bucket
+          <select id="bucket">
+            <option value="day" selected>Day</option>
+            <option value="hour">Hour</option>
+          </select>
+        </label>
+        <label>
+          Correlation Method
+          <select id="method">
+            <option value="pearson" selected>Pearson</option>
+            <option value="spearman">Spearman</option>
+          </select>
+        </label>
+        <label>
+          Source Filter
+          <select id="sourceFilter">
+            <option value="all" selected>All Sources</option>
+          </select>
+        </label>
+      </div>
+      <div class="sector-filter-wrap">
+        <p>Sector Filter</p>
+        <div id="sectorFilter" class="chip-row"></div>
+      </div>
+      <div class="actions">
+        <button id="runQuery" class="btn btn-primary">Run Analysis</button>
+        <button id="forceRecompute" class="btn btn-ghost">Recompute Analytics</button>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <article class="panel">
+        <h2>Timeline Sentiment + Confidence</h2>
+        <div id="timelineChart" class="chart"></div>
+      </article>
+      <article class="panel">
+        <h2>Sector Correlation Heatmap</h2>
+        <div id="heatmapChart" class="chart"></div>
+      </article>
+    </section>
+
+    <section class="grid-2">
+      <article class="panel">
+        <h2>Ranked Feed Cards</h2>
+        <div id="feedCards" class="feed-cards"></div>
+      </article>
+      <article class="panel">
+        <h2>Lead/Lag Signals</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Pair</th>
+                <th>Best Lag</th>
+                <th>Correlation</th>
+                <th>Leader</th>
+              </tr>
+            </thead>
+            <tbody id="leadLagTable"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel observability">
+      <h2>Observability</h2>
+      <div class="obs-grid">
+        <div class="obs-card">
+          <p>Last Pipeline Run</p>
+          <strong id="lastRun">-</strong>
+        </div>
+        <div class="obs-card">
+          <p>Failed Jobs (recent)</p>
+          <strong id="failedJobs">0</strong>
+        </div>
+        <div class="obs-card">
+          <p>API Latency Snapshot</p>
+          <strong id="latency">-</strong>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

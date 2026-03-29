@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,7 @@ from .connectors.rss import RSSConnector
 from .connectors.newsapi import NewsAPIConnector
 from .connectors.marketaux import MarketauxConnector
 from .connectors.reddit import RedditConnector
-from .analytics import get_ranked_items, get_timeline, run_query
+from .analytics import get_ranked_items, get_sector_insights, get_timeline, run_query
 from .enrichment import run_enrichment_pipeline
 from .ingestion import store_raw_items
 
@@ -31,6 +32,57 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version=settings.api_version, lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _ingest_for_company(
+    db_session: Session,
+    company: str,
+    sources: str = "rss,newsapi,marketaux",
+) -> int:
+    total_stored = 0
+    source_list = [s.strip().lower() for s in sources.split(",") if s.strip()]
+
+    if "rss" in source_list:
+        try:
+            rss_connector = RSSConnector()
+            items = rss_connector.fetch(company=company, sectors=["Technology"], limit=10)
+            total_stored += store_raw_items(db_session, items)
+        except Exception as exc:
+            log.error("Autofetch RSS ingestion failed: %s", exc)
+
+    if "newsapi" in source_list:
+        try:
+            newsapi_key = getattr(settings, "newsapi_key", None)
+            if newsapi_key:
+                newsapi_connector = NewsAPIConnector(api_key=newsapi_key)
+                items = newsapi_connector.fetch(company=company, sectors=["Technology"], limit=10)
+                total_stored += store_raw_items(db_session, items)
+            else:
+                log.warning("Autofetch: NewsAPI key not configured; skipping")
+        except Exception as exc:
+            log.error("Autofetch NewsAPI ingestion failed: %s", exc)
+
+    if "marketaux" in source_list:
+        try:
+            marketaux_key = getattr(settings, "marketaux_api_key", None)
+            if marketaux_key:
+                marketaux_connector = MarketauxConnector(api_key=marketaux_key)
+                items = marketaux_connector.fetch(company=company, sectors=["Technology"], limit=10)
+                total_stored += store_raw_items(db_session, items)
+            else:
+                log.warning("Autofetch: Marketaux key not configured; skipping")
+        except Exception as exc:
+            log.error("Autofetch Marketaux ingestion failed: %s", exc)
+
+    return total_stored
 
 
 @app.get("/health")
@@ -258,6 +310,50 @@ def query_run(
             item_limit=item_limit,
             recompute_timeline=recompute_timeline,
         )
+
+        autofetch_meta: dict[str, object] = {
+            "triggered": False,
+            "stored_raw_items": 0,
+            "enriched_items": 0,
+            "status": "skipped",
+        }
+
+        has_data = bool(result.get("timeline_points", 0)) or bool(result.get("items_returned", 0))
+        if not has_data:
+            autofetch_meta["triggered"] = True
+            try:
+                stored_count = _ingest_for_company(
+                    db_session=session,
+                    company=company,
+                    sources="rss,newsapi,marketaux",
+                )
+                enrich_result = run_enrichment_pipeline(
+                    db_session=session,
+                    company=company,
+                    limit=min(100, settings.nlp_max_items_per_run),
+                    min_relevance=settings.nlp_min_relevance,
+                    max_text_chars=settings.nlp_max_text_chars,
+                    prefer_finbert=settings.nlp_prefer_finbert,
+                    finbert_min_confidence=settings.nlp_finbert_min_confidence,
+                    hf_api_key=settings.huggingface_api_key,
+                )
+                result = run_query(
+                    db_session=session,
+                    company=company,
+                    bucket=bucket,
+                    window_days=window_days,
+                    item_limit=item_limit,
+                    recompute_timeline=True,
+                )
+                autofetch_meta["stored_raw_items"] = int(stored_count)
+                autofetch_meta["enriched_items"] = int(enrich_result.get("processed_count", 0))
+                autofetch_meta["status"] = "completed"
+            except Exception as exc:
+                log.error("Autofetch on query miss failed: %s", exc)
+                autofetch_meta["status"] = "failed"
+                autofetch_meta["error"] = str(exc)
+
+        result["autofetch"] = autofetch_meta
         result["timestamp"] = datetime.now(timezone.utc).isoformat()
         return result
     except ValueError as exc:
@@ -338,5 +434,39 @@ def query_timeline(
     except Exception as exc:
         log.error("Timeline endpoint failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"timeline error: {exc}")
+    finally:
+        session.close()
+
+
+@app.get("/sector-insights")
+def query_sector_insights(
+    bucket: str = "day",
+    window_days: int = 14,
+    method: str = "pearson",
+    max_lag: int = 3,
+    recompute: bool = False,
+) -> dict[str, object]:
+    """Return cross-sector sentiment series, correlations, and lead/lag results."""
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="database not configured")
+
+    session = Session(engine)
+    try:
+        result = get_sector_insights(
+            db_session=session,
+            bucket=bucket,
+            window_days=window_days,
+            method=method,
+            max_lag=max_lag,
+            recompute=recompute,
+        )
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log.error("Sector insights endpoint failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"sector-insights error: {exc}")
     finally:
         session.close()

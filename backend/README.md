@@ -17,6 +17,21 @@
 - `POST /query` (impact-scored query response with timeline + ranked items)
 - `GET /items` (impact-ranked item list)
 - `GET /timeline` (impact-weighted sentiment timeline)
+- `GET /sector-insights` (cross-sector time series + correlation matrix + lead/lag)
+
+
+- `GET /timeline` and `POST /query` timeline payloads now include `confidence_score`.
+- `GET /items` and `POST /query` item payloads now include `impact_factors`:
+   - `reliability`
+   - `engagement`
+   - `relevance`
+   - weighted contribution values and final `impact_score`
+- `GET /sector-insights` parameters:
+   - `bucket=day|hour`
+   - `window_days=1..90`
+   - `method=pearson|spearman`
+   - `max_lag=1..14`
+   - `recompute=true|false`
 
 ## NLP Transition Mode
 - Primary scorer: FinBERT (optional) with lexicon fallback

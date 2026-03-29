@@ -99,3 +99,25 @@ class TimeSeriesSentiment(Base):
         ),
         Index("ix_time_series_company_bucket_start", "company", "bucket_start"),
     )
+
+
+class SectorCorrelation(Base):
+    """Cross-sector correlation and lead/lag analytics snapshots."""
+
+    __tablename__ = "sector_correlations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bucket_size = Column(String(20), nullable=False, index=True)
+    window_days = Column(Integer, nullable=False)
+    method = Column(String(20), nullable=False, index=True)  # pearson/spearman
+    max_lag = Column(Integer, nullable=False, default=3)
+
+    sector_series = Column(JSON, nullable=False)
+    correlation_matrix = Column(JSON, nullable=False)
+    lead_lag_table = Column(JSON, nullable=False)
+
+    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_sector_corr_bucket_window_method", "bucket_size", "window_days", "method"),
+    )

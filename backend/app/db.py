@@ -18,7 +18,12 @@ def _build_connect_args(database_url: str) -> dict[str, object]:
     Render/Supabase can fail on IPv6-only resolution in some environments.
     If possible, resolve the hostname to IPv4 and pass hostaddr explicitly.
     """
-    connect_args: dict[str, object] = {"connect_timeout": 8}
+    # Supabase pooler (PgBouncer transaction mode) can conflict with psycopg
+    # server-side prepared statements. Disable auto-prepare for stability.
+    connect_args: dict[str, object] = {
+        "connect_timeout": 8,
+        "prepare_threshold": None,
+    }
 
     try:
         parsed_url = make_url(database_url)

@@ -21,6 +21,6 @@ venv/
 Thumbs.db
 project/
 docs/
-dashboard/
+dashboard/README.md
 backend/tests/
 scripts/
