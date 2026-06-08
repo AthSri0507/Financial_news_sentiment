@@ -6,7 +6,22 @@ from sqlalchemy.orm import Session
 
 from app.models import RawItem
 
+try:
+    import ftfy
+except Exception:  # pragma: no cover - optional dependency
+    ftfy = None
+
 log = logging.getLogger(__name__)
+
+
+def _fix_encoding(value):
+    """Repair recoverable mojibake on stored text so titles/content display cleanly."""
+    if not value or ftfy is None:
+        return value
+    try:
+        return ftfy.fix_text(value)
+    except Exception:  # pragma: no cover - defensive
+        return value
 
 
 def store_raw_items(db_session: Session, items: list, skip_duplicates: bool = True) -> int:
@@ -43,25 +58,26 @@ def store_raw_items(db_session: Session, items: list, skip_duplicates: bool = Tr
             if item.raw_payload and "content_hash" in item.raw_payload:
                 content_hash = item.raw_payload["content_hash"]
 
-            # Check for duplicate by content hash if available
+            # Check for duplicate by content hash if available. Use an indexed
+            # column query (the content_hash is persisted below) instead of
+            # scanning every row in Python — the old approach was O(n^2) per batch
+            # and untenable at backfill/multi-company volume.
             if skip_duplicates and content_hash:
-                # Query all items and check content_hash in Python (database agnostic)
-                existing = db_session.query(RawItem).all()
-                duplicate_found = False
-                for db_item in existing:
-                    if db_item.raw_payload and db_item.raw_payload.get("content_hash") == content_hash:
-                        log.debug(f"Skipping duplicate content hash: {content_hash}")
-                        duplicate_found = True
-                        break
-                if duplicate_found:
+                existing = (
+                    db_session.query(RawItem.id)
+                    .filter(RawItem.content_hash == content_hash)
+                    .first()
+                )
+                if existing:
+                    log.debug(f"Skipping duplicate content hash: {content_hash}")
                     continue
 
             raw_item = RawItem(
                 source_type=item.source_type,
                 source_name=item.source_name,
                 author=item.author,
-                title=item.title,
-                content=item.content,
+                title=_fix_encoding(item.title),
+                content=_fix_encoding(item.content),
                 url=item.url,
                 published_at=item.published_at,
                 ingested_at=datetime.utcnow(),

@@ -66,11 +66,15 @@
         <button id="runQuery" class="btn btn-primary">Run Analysis</button>
         <button id="forceRecompute" class="btn btn-ghost">Recompute Analytics</button>
       </div>
+      <div id="freshnessBadge" class="freshness"></div>
     </section>
 
     <section class="grid-2">
       <article class="panel">
         <h2>Timeline Sentiment + Confidence</h2>
+        <label class="smooth-toggle">
+          <input type="checkbox" id="smoothToggle" /> Smooth (3-pt trend)
+        </label>
         <div id="timelineChart" class="chart"></div>
       </article>
       <article class="panel">
@@ -93,6 +97,7 @@
                 <th>Pair</th>
                 <th>Best Lag</th>
                 <th>Correlation</th>
+                <th>n</th>
                 <th>Leader</th>
               </tr>
             </thead>
@@ -118,6 +123,26 @@
           <strong id="latency">-</strong>
         </div>
       </div>
+    </section>
+
+    <section class="panel">
+      <h2>Model Energy &amp; Carbon <span class="muted-label">(estimated, not measured)</span></h2>
+      <div class="obs-grid">
+        <div class="obs-card">
+          <p>Total Inferences</p>
+          <strong id="energyInferences">-</strong>
+        </div>
+        <div class="obs-card">
+          <p>Estimated Energy</p>
+          <strong id="energyKwh">-</strong>
+        </div>
+        <div class="obs-card">
+          <p>Estimated CO₂e</p>
+          <strong id="energyCo2">-</strong>
+        </div>
+      </div>
+      <div id="energyBreakdown" class="energy-breakdown"></div>
+      <p id="energyMethodology" class="energy-note"></p>
     </section>
   </main>
 

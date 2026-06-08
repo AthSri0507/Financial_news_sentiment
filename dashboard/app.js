@@ -2,6 +2,7 @@ const state = {
   sectors: [],
   selectedSectors: new Set(),
   sourceFilter: "all",
+  lastTimeline: [],
 };
 
 const elements = {
@@ -13,13 +14,20 @@ const elements = {
   sourceFilter: document.getElementById("sourceFilter"),
   runQuery: document.getElementById("runQuery"),
   forceRecompute: document.getElementById("forceRecompute"),
+  freshnessBadge: document.getElementById("freshnessBadge"),
   timelineChart: document.getElementById("timelineChart"),
+  smoothToggle: document.getElementById("smoothToggle"),
   heatmapChart: document.getElementById("heatmapChart"),
   feedCards: document.getElementById("feedCards"),
   leadLagTable: document.getElementById("leadLagTable"),
   sectorFilter: document.getElementById("sectorFilter"),
   healthBadge: document.getElementById("healthBadge"),
   lastRun: document.getElementById("lastRun"),
+  energyInferences: document.getElementById("energyInferences"),
+  energyKwh: document.getElementById("energyKwh"),
+  energyCo2: document.getElementById("energyCo2"),
+  energyBreakdown: document.getElementById("energyBreakdown"),
+  energyMethodology: document.getElementById("energyMethodology"),
   failedJobs: document.getElementById("failedJobs"),
   latency: document.getElementById("latency"),
 };
@@ -96,10 +104,31 @@ function normalizeSourceOptions(items) {
   elements.sourceFilter.value = state.sourceFilter;
 }
 
+function movingAverage(values, window) {
+  return values.map((_, i) => {
+    const start = Math.max(0, i - window + 1);
+    const slice = values.slice(start, i + 1).filter((v) => v !== null && v !== undefined);
+    if (!slice.length) return null;
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+}
+
 function renderTimeline(timeline) {
   const x = timeline.map((p) => p.bucket_start);
   const y = timeline.map((p) => p.weighted_sentiment);
+  const counts = timeline.map((p) => p.item_count || 0);
   const confidence = timeline.map((p) => p.confidence_score || 0);
+
+  // Volume context (item counts) as faint bars on a secondary axis.
+  const traceVolume = {
+    x,
+    y: counts,
+    type: "bar",
+    name: "Items",
+    yaxis: "y2",
+    marker: { color: "rgba(73,198,180,0.25)" },
+    hovertemplate: "%{y} items<extra></extra>",
+  };
 
   const traceSentiment = {
     x,
@@ -107,6 +136,7 @@ function renderTimeline(timeline) {
     mode: "lines+markers",
     name: "Weighted Sentiment",
     line: { color: "#49c6b4", width: 3 },
+    connectgaps: false,
     marker: {
       size: confidence.map((c) => 8 + c * 9),
       color: confidence,
@@ -118,16 +148,48 @@ function renderTimeline(timeline) {
     },
   };
 
+  const traces = [traceVolume, traceSentiment];
+
+  if (elements.smoothToggle && elements.smoothToggle.checked) {
+    traces.push({
+      x,
+      y: movingAverage(y, 3),
+      mode: "lines",
+      name: "Trend (3-pt avg)",
+      line: { color: "#ffc857", width: 2, dash: "dash" },
+      connectgaps: false,
+    });
+  }
+
+  // Dynamic, padded y-axis so real variation is visible (vs. a flat line in a
+  // fixed [-1,1] window). Clamped to the valid sentiment range.
+  const finite = y.filter((v) => typeof v === "number");
+  let yRange = [-1, 1];
+  if (finite.length) {
+    const lo = Math.min(...finite);
+    const hi = Math.max(...finite);
+    const pad = Math.max(0.05, (hi - lo) * 0.2);
+    yRange = [Math.max(-1, lo - pad), Math.min(1, hi + pad)];
+  }
+
   const layout = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
-    margin: { l: 40, r: 20, b: 50, t: 20 },
+    margin: { l: 40, r: 50, b: 50, t: 20 },
     font: { color: "#eaf6ff" },
-    yaxis: { title: "Sentiment", range: [-1, 1] },
+    showlegend: false,
+    yaxis: { title: "Sentiment", range: yRange },
+    yaxis2: {
+      title: "Items",
+      overlaying: "y",
+      side: "right",
+      showgrid: false,
+      rangemode: "tozero",
+    },
     xaxis: { title: "Bucket" },
   };
 
-  Plotly.newPlot(elements.timelineChart, [traceSentiment], layout, { responsive: true });
+  Plotly.newPlot(elements.timelineChart, traces, layout, { responsive: true });
 }
 
 function renderHeatmap(matrix) {
@@ -137,7 +199,24 @@ function renderHeatmap(matrix) {
   }
 
   const sectors = matrix.map((row) => row.sector);
-  const z = matrix.map((row) => row.values);
+  const z = matrix.map((row) =>
+    row.values.map((v) => (v === null || v === undefined ? null : v))
+  );
+  const text = matrix.map((row) =>
+    row.values.map((v, j) => {
+      const meta = (row.value_meta && row.value_meta[j]) || {};
+      const n = meta.n ?? 0;
+      if (v === null || v === undefined) {
+        return `${row.sector} vs ${sectors[j]}<br>insufficient data (n=${n})`;
+      }
+      const p =
+        meta.p_value === null || meta.p_value === undefined
+          ? "n/a"
+          : Number(meta.p_value).toFixed(3);
+      const sig = meta.significant ? "significant" : "not significant";
+      return `${row.sector} vs ${sectors[j]}<br>r=${Number(v).toFixed(3)} (n=${n}, p=${p}, ${sig})`;
+    })
+  );
 
   Plotly.newPlot(
     elements.heatmapChart,
@@ -150,6 +229,8 @@ function renderHeatmap(matrix) {
         colorscale: "RdBu",
         zmin: -1,
         zmax: 1,
+        text,
+        hoverinfo: "text",
       },
     ],
     {
@@ -172,6 +253,122 @@ function sentimentColor(label) {
   return "#ffc857";
 }
 
+function notableVoicesHtml(people) {
+  if (!people || !people.length) return "";
+  const chips = people
+    .map((p) => `<span class="badge person">🎙 ${p.name}${p.role ? " · " + p.role : ""}</span>`)
+    .join("");
+  return `<div class="badges">${chips}</div>`;
+}
+
+function renderFreshness(freshness) {
+  if (!elements.freshnessBadge) return;
+  if (!freshness) {
+    elements.freshnessBadge.textContent = "";
+    return;
+  }
+  const mins = freshness.minutes_since_fetch;
+  let label;
+  let cls = "fresh-cached";
+  switch (freshness.view_state) {
+    case "updated":
+      label = `Updated just now (${freshness.new_items} new article${freshness.new_items === 1 ? "" : "s"})`;
+      cls = "fresh-updated";
+      break;
+    case "checked":
+      label = "Checked just now (no newer articles found)";
+      cls = "fresh-checked";
+      break;
+    case "unavailable":
+      label = "Using cached data (refresh unavailable)";
+      cls = "fresh-unavailable";
+      break;
+    default:
+      label =
+        mins === null || mins === undefined
+          ? "Using cached data"
+          : `Updated ${mins < 1 ? "just now" : Math.round(mins) + " min ago"}`;
+      cls = "fresh-cached";
+  }
+  const q = freshness.quota || {};
+  const quotaHint =
+    q.newsapi_remaining !== undefined
+      ? ` · quota N:${q.newsapi_remaining} M:${q.marketaux_remaining}`
+      : "";
+  elements.freshnessBadge.className = `freshness ${cls}`;
+  elements.freshnessBadge.textContent = label + quotaHint;
+}
+
+async function checkEnergy() {
+  if (!elements.energyKwh) return;
+  try {
+    const resp = await fetch(apiUrl("/energy"));
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const c = data.counts || {};
+    const f = data.factors || {};
+    const inferences =
+      (c.finbert || 0) + (c.lexicon || 0) + (c.hf_summary || 0) + (c.hf_ner || 0);
+    elements.energyInferences.textContent = `${inferences} (${c.total_items || 0} items)`;
+    elements.energyKwh.textContent = `${Number(data.energy_kwh || 0).toFixed(4)} kWh`;
+    elements.energyCo2.textContent = `${Number(data.co2_g || 0).toFixed(1)} gCO₂e`;
+    if (elements.energyBreakdown) {
+      elements.energyBreakdown.innerHTML = `
+        <span class="badge">FinBERT ${c.finbert || 0}</span>
+        <span class="badge">lexicon ${c.lexicon || 0}</span>
+        <span class="badge">HF summary ${c.hf_summary || 0}</span>
+        <span class="badge">extractive ${c.extractive_summary || 0}</span>
+        <span class="badge">HF NER ${c.hf_ner || 0}</span>`;
+    }
+    if (elements.energyMethodology) {
+      elements.energyMethodology.textContent =
+        `${data.methodology || ""} Factors (Wh): FinBERT ${f.wh_per_finbert}, ` +
+        `HF summary ${f.wh_per_hf_summary}, HF NER ${f.wh_per_hf_ner}, ` +
+        `base/item ${f.wh_base_per_item}; grid ${f.grid_gco2_per_kwh} gCO₂/kWh.`;
+    }
+  } catch (error) {
+    // Energy panel is best-effort; never block the dashboard.
+  }
+}
+
+function marketReactionHtml(reaction) {
+  // Observational: post-publication price movement over the primary (1d) window.
+  // NOT a causal effect of the article.
+  const state = reaction && reaction.state;
+  const pct = reaction && reaction.change_pct;
+  const win = (reaction && reaction.window) || "1d";
+  const after = win === "1d" ? "1 day after" : `${win} after`;
+  const fmt = (p) => `${p >= 0 ? "+" : ""}${Number(p).toFixed(1)}%`;
+  if (state === "positive") {
+    return `<span class="reaction moved" title="Post-publication price movement; not causal">↑ Price ${fmt(pct)} (${after})</span>`;
+  }
+  if (state === "negative") {
+    return `<span class="reaction negative" title="Post-publication price movement; not causal">↓ Price ${fmt(pct)} (${after})</span>`;
+  }
+  if (state === "none") {
+    const detail = pct === null || pct === undefined ? "" : ` (${fmt(pct)})`;
+    return `<span class="reaction flat">≈ Price flat${detail} (${after})</span>`;
+  }
+  if (state === "undetermined") {
+    return `<span class="reaction pending">— Price data unavailable</span>`;
+  }
+  return `<span class="reaction pending">⏳ Window not elapsed</span>`;
+}
+
+function sentimentHtml(item) {
+  const conf = Number(item.sentiment_confidence || 0).toFixed(2);
+  const src =
+    item.sentiment_source === "finbert"
+      ? "FinBERT"
+      : item.sentiment_source === "lexicon"
+      ? "lexicon"
+      : "";
+  const low = item.sentiment_low_confidence ? ' <span class="low-tag">low conf</span>' : "";
+  const cls = item.sentiment_low_confidence ? "sentiment low-conf" : "sentiment";
+  const srcTxt = src ? ` · ${src}` : "";
+  return `<span class="${cls}" style="color:${sentimentColor(item.sentiment_label)}">${item.sentiment_label} · ${conf}${srcTxt}${low}</span>`;
+}
+
 function renderFeedCards(items) {
   elements.feedCards.innerHTML = "";
 
@@ -187,21 +384,31 @@ function renderFeedCards(items) {
     card.className = "feed-card";
 
     const factors = item.impact_factors || {};
+    const summarySource = item.summary_source === "hf" ? `<span class="badge">AI</span>` : "";
 
     card.innerHTML = `
       <div class="feed-head">
         <strong>${item.title || "Untitled"}</strong>
-        <span style="color:${sentimentColor(item.sentiment_label)}">${item.sentiment_label}</span>
+        ${sentimentHtml(item)}
       </div>
       <p>${item.summary || "No summary available."}</p>
+      ${notableVoicesHtml(item.notable_people)}
       <div class="feed-head">
         <a href="${item.url}" target="_blank" rel="noopener noreferrer">Open source</a>
-        <span>Impact ${Number(item.impact_score || 0).toFixed(3)}</span>
+        <span>Predicted Impact ${Number(item.impact_score || 0).toFixed(3)}</span>
+      </div>
+      <div class="feed-head">
+        <span class="muted-label">Price after publication</span>
+        ${marketReactionHtml(item.market_reaction)}
       </div>
       <div class="badges">
         <span class="badge">R ${(factors.reliability || 0).toFixed(2)}</span>
         <span class="badge">E ${(factors.engagement || 0).toFixed(2)}</span>
         <span class="badge">Q ${(factors.relevance || 0).toFixed(2)}</span>
+        <span class="badge">Rec ${(factors.recency || 0).toFixed(2)}</span>
+        <span class="badge">Mag ${(factors.magnitude || 0).toFixed(2)}</span>
+        ${(factors.notable || 0) > 0 ? `<span class="badge">★ ${(factors.notable).toFixed(2)}</span>` : ""}
+        ${summarySource}
         <span class="badge">${item.source_type || "unknown"}</span>
       </div>
     `;
@@ -219,11 +426,18 @@ function renderLeadLag(rows) {
 
   rows.slice(0, 20).forEach((row) => {
     const tr = document.createElement("tr");
-    const leaderText = row.leader === "none" ? "No lead" : `${row.leader} -> ${row.follower}`;
+    const hasCorr = row.correlation !== null && row.correlation !== undefined;
+    const leaderText =
+      !hasCorr || row.leader === "none" ? "No lead" : `${row.leader} -> ${row.follower}`;
+    const corrText = hasCorr
+      ? `${Number(row.correlation).toFixed(3)}${row.significant ? " *" : ""}`
+      : "insufficient";
+    const lagText = hasCorr ? row.best_lag : "—";
     tr.innerHTML = `
       <td>${row.sector_a} vs ${row.sector_b}</td>
-      <td>${row.best_lag}</td>
-      <td>${Number(row.correlation || 0).toFixed(3)}</td>
+      <td>${lagText}</td>
+      <td>${corrText}</td>
+      <td>${row.n ?? 0}</td>
       <td>${leaderText}</td>
     `;
     elements.leadLagTable.appendChild(tr);
@@ -248,11 +462,18 @@ function filteredSectorInsights(sectorPayload) {
     }
 
     const values = [];
+    const valueMeta = [];
     sectorNames.forEach((name) => {
       const sourceIndex = originalIndex.get(name);
-      values.push(sourceIndex === undefined ? 0 : row.values[sourceIndex]);
+      if (sourceIndex === undefined) {
+        values.push(null);
+        valueMeta.push({ n: 0, p_value: null, significant: false });
+      } else {
+        values.push(row.values[sourceIndex]);
+        valueMeta.push(row.value_meta ? row.value_meta[sourceIndex] : {});
+      }
     });
-    matrix.push({ sector: row.sector, values });
+    matrix.push({ sector: row.sector, values, value_meta: valueMeta });
   });
 
   const leadLag = (sectorPayload.lead_lag || []).filter(
@@ -326,10 +547,12 @@ async function runAnalysis(forceRecompute) {
   const sectorData = filteredSectorInsights(sectorDataRaw);
 
   normalizeSourceOptions(queryData.items || []);
-  renderTimeline(queryData.timeline || []);
+  state.lastTimeline = queryData.timeline || [];
+  renderTimeline(state.lastTimeline);
   renderHeatmap(sectorData.correlation_matrix || []);
   renderFeedCards(queryData.items || []);
   renderLeadLag(sectorData.lead_lag || []);
+  renderFreshness(queryData.freshness);
 
   state.sectors = (sectorDataRaw.sector_series || []).map((s) => s.sector);
   renderSectorChips(state.sectors);
@@ -368,9 +591,16 @@ elements.sourceFilter.addEventListener("change", () => {
   runAnalysis(false).catch((error) => alert(error.message || "Failed to refresh source filter"));
 });
 
+if (elements.smoothToggle) {
+  elements.smoothToggle.addEventListener("change", () => {
+    renderTimeline(state.lastTimeline || []);
+  });
+}
+
 (async function bootstrap() {
   setInitialValues();
   await checkHealth();
+  checkEnergy();
   try {
     await runAnalysis(false);
   } catch (error) {

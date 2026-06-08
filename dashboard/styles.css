@@ -215,6 +215,100 @@ select {
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+.badge.person {
+  background: rgba(73, 198, 180, 0.15);
+  border-color: rgba(73, 198, 180, 0.5);
+}
+
+.reaction {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+}
+
+.reaction.moved {
+  color: #95d46b;
+}
+
+.reaction.negative {
+  color: #ff6b6b;
+}
+
+.reaction.flat {
+  color: #ffc857;
+}
+
+.reaction.pending {
+  color: rgba(234, 246, 255, 0.55);
+}
+
+.sentiment {
+  font-size: 0.82rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.sentiment.low-conf {
+  opacity: 0.55;
+}
+
+.low-tag {
+  font-size: 0.66rem;
+  padding: 1px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 200, 87, 0.6);
+  color: #ffc857;
+  margin-left: 4px;
+}
+
+.muted-label {
+  font-size: 0.72rem;
+  color: rgba(234, 246, 255, 0.5);
+}
+
+.energy-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.energy-note {
+  margin-top: 10px;
+  font-size: 0.72rem;
+  color: rgba(234, 246, 255, 0.55);
+  line-height: 1.4;
+}
+
+.freshness {
+  font-size: 0.78rem;
+  margin-top: 8px;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.freshness.fresh-updated {
+  color: #95d46b;
+}
+
+.freshness.fresh-checked {
+  color: rgba(234, 246, 255, 0.75);
+}
+
+.freshness.fresh-cached {
+  color: rgba(234, 246, 255, 0.55);
+}
+
+.freshness.fresh-unavailable {
+  color: #ffc857;
+}
+
+.smooth-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
 .table-wrap {
   overflow-x: auto;
 }

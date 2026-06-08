@@ -5,6 +5,11 @@ on:
     # Every 30 minutes
     - cron: "*/30 * * * *"
   workflow_dispatch:
+    inputs:
+      backfill_days:
+        description: "If set (1-30), run a one-shot historical backfill instead of the normal batch"
+        required: false
+        default: ""
 
 jobs:
   trigger-ingestion:
@@ -14,12 +19,21 @@ jobs:
         env:
           BASE_URL: ${{ secrets.APP_BASE_URL }}
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          BACKFILL_DAYS: ${{ github.event.inputs.backfill_days }}
         run: |
           if [ -z "$BASE_URL" ] || [ -z "$INGEST_TOKEN" ]; then
             echo "APP_BASE_URL or INGEST_TOKEN is missing"
             exit 1
           fi
 
-          curl --fail --show-error --silent \
-            -X POST "$BASE_URL/ingest/run" \
-            -H "Authorization: Bearer $INGEST_TOKEN"
+          if [ -n "$BACKFILL_DAYS" ]; then
+            echo "Running one-shot backfill for $BACKFILL_DAYS days (default per-sector basket)"
+            curl --fail --show-error --silent \
+              -X POST "$BASE_URL/ingest/backfill?days=$BACKFILL_DAYS" \
+              -H "Authorization: Bearer $INGEST_TOKEN"
+          else
+            # Sector-spanning basket (one company per sector) across all sources, with inline enrichment.
+            curl --fail --show-error --silent \
+              -X POST "$BASE_URL/ingest/batch?sources=rss,newsapi,marketaux" \
+              -H "Authorization: Bearer $INGEST_TOKEN"
+          fi

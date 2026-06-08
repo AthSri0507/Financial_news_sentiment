@@ -1,9 +1,27 @@
+import html
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
 
+try:
+    import ftfy
+except Exception:  # pragma: no cover - optional dependency
+    ftfy = None
+
+from app import notable_people as notable_people_mod
+from app.ner import NEREngine
+
+log = logging.getLogger(__name__)
+
+# Signals that a sentence carries financial substance (numbers, %, money words).
+_FINANCE_SIGNAL = re.compile(
+    r"\d|%|\b(stock|shares?|earnings|revenue|profit|loss(?:es)?|guidance|debt|"
+    r"cent|rs|crore|lakh|billion|million|deal|order|fall|rise|surge|drop)\b",
+    re.IGNORECASE,
+)
 
 DEFAULT_COMPANY_ALIASES: dict[str, list[str]] = {
     "apple": ["apple", "aapl", "apple inc", "iphone", "ipad", "mac"],
@@ -73,14 +91,59 @@ class EnrichmentResult:
     entities: list[str]
     model_confidence: dict[str, Any]
     pipeline_flags: dict[str, Any]
+    notable_people: list[dict] = field(default_factory=list)
 
 
 def clean_text(text: str) -> str:
     text = text or ""
+    # Repair recoverable mojibake (â€™, Â£, …) before stripping. Pure U+FFFD (�)
+    # was lost at fetch time and cannot be recovered here.
+    if ftfy is not None:
+        try:
+            text = ftfy.fix_text(text)
+        except Exception:  # pragma: no cover - defensive
+            pass
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"https?://\S+", " ", text)
+    text = html.unescape(text)  # &nbsp; &amp; &#39; → spaces/chars
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text or "") if s.strip()]
+
+
+def _norm_sentence(sentence: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", sentence.lower()).strip()
+
+
+def _sentence_signature(sentence: str) -> str:
+    """Leading-token fingerprint so near-duplicates (title vs. 'title + more')
+    collapse together, not just exact repeats."""
+    return " ".join(_norm_sentence(sentence).split()[:8])
+
+
+def dedupe_sentences(text: str) -> str:
+    """Order-preserving removal of duplicate/near-duplicate sentences.
+
+    News feeds commonly set `content` to the title, then the title again with a
+    bit more text. Those share a leading-token signature, so we collapse them and
+    keep the **longest** (most informative) variant for each signature — fixing
+    the "summary = repeated title" pattern.
+    """
+    order: list[str] = []
+    best: dict[str, str] = {}
+    for sentence in _split_sentences(text):
+        sig = _sentence_signature(sentence)
+        if not sig:
+            continue
+        if sig not in best:
+            best[sig] = sentence
+            order.append(sig)
+        elif len(sentence) > len(best[sig]):
+            best[sig] = sentence
+    return " ".join(best[sig] for sig in order)
 
 
 def detect_language(text: str) -> str:
@@ -123,14 +186,28 @@ def is_noise_text(text: str) -> bool:
 
 
 def summarize_text(text: str, max_sentences: int = 2) -> str:
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    # De-duplicate (incl. near-duplicate title echoes) first so a repeated title
+    # doesn't fill the summary.
+    sentences = _split_sentences(dedupe_sentences(text))
+
     if not sentences:
         return ""
-
     if len(sentences) <= max_sentences:
         return " ".join(sentences)
 
-    return " ".join(sentences[:max_sentences])
+    # Keep the lead sentence, then prefer the first finance-bearing sentence so
+    # the extractive summary is informative (not just the headline).
+    picked = [sentences[0]]
+    for sentence in sentences[1:]:
+        if _FINANCE_SIGNAL.search(sentence):
+            picked.append(sentence)
+            break
+    for sentence in sentences[1:]:
+        if len(picked) >= max_sentences:
+            break
+        if sentence not in picked:
+            picked.append(sentence)
+    return " ".join(picked[:max_sentences])
 
 
 def extract_entities(text: str) -> list[str]:
@@ -392,12 +469,111 @@ class SentimentEngine:
         return label, round(raw_score, 4), payload
 
 
-def enrich_text(company: str, title: str, content: str, sentiment_engine: SentimentEngine) -> EnrichmentResult:
+class SummarizationEngine:
+    """HF abstractive summarizer with extractive fallback.
+
+    Mirrors SentimentEngine's HF-Inference + graceful-fallback design: tries an
+    abstractive model when enabled and the text is long enough; otherwise (or on
+    any error / low-quality output) falls back to the extractive summarize_text.
+    Never raises.
+    """
+
+    def __init__(
+        self,
+        prefer_hf: bool = False,
+        model_id: str = "sshleifer/distilbart-cnn-12-6",
+        hf_api_key: str | None = None,
+        min_chars: int = 200,
+        max_input_chars: int = 1500,
+    ):
+        self.prefer_hf = prefer_hf
+        self.model_id = model_id
+        self.hf_api_key = hf_api_key
+        self.min_chars = min_chars
+        self.max_input_chars = max_input_chars
+        self.urls = [
+            f"https://router.huggingface.co/hf-inference/models/{model_id}",
+            f"https://api-inference.huggingface.co/models/{model_id}",
+        ]
+
+    def summarize(self, text: str, fallback_max_sentences: int = 2) -> tuple[str, dict[str, Any]]:
+        extractive = summarize_text(text, max_sentences=fallback_max_sentences)
+        if not self.prefer_hf or not self.hf_api_key or len(text or "") < self.min_chars:
+            return extractive, {"source": "extractive", "available": False}
+
+        try:
+            hf_summary = self._summarize_hf(text)
+            # Quality guard: non-empty, not a verbatim echo, sensibly shorter.
+            if hf_summary and hf_summary.strip() and hf_summary.strip() != text.strip():
+                return hf_summary.strip(), {
+                    "source": "hf",
+                    "available": True,
+                    "model": self.model_id,
+                }
+            return extractive, {
+                "source": "extractive",
+                "available": True,
+                "fallback_reason": "low_quality",
+            }
+        except Exception as exc:  # pragma: no cover - network/parse dependent
+            log.warning("HF summarization failed (%s); using extractive", exc)
+            return extractive, {
+                "source": "extractive",
+                "available": False,
+                "fallback_reason": str(exc),
+            }
+
+    def _summarize_hf(self, text: str) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.hf_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "inputs": text[: self.max_input_chars],
+            "options": {"wait_for_model": True},
+        }
+        last_error: Exception | None = None
+        for url in self.urls:
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=20)
+                response.raise_for_status()
+                data = response.json()
+                return self._parse_summary(data)
+            except Exception as exc:
+                last_error = exc
+                continue
+        if last_error:
+            raise last_error
+        raise RuntimeError("summary_inference_unavailable")
+
+    @staticmethod
+    def _parse_summary(data: Any) -> str:
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return str(data[0].get("summary_text") or "")
+        if isinstance(data, dict):
+            return str(data.get("summary_text") or "")
+        return ""
+
+
+def enrich_text(
+    company: str,
+    title: str,
+    content: str,
+    sentiment_engine: SentimentEngine,
+    ner_engine: NEREngine | None = None,
+    summarizer: "SummarizationEngine | None" = None,
+) -> EnrichmentResult:
     combined = f"{title or ''}. {content or ''}".strip()
-    cleaned = clean_text(combined)
+    # Repair encoding, strip markup, THEN drop repeated sentences (feeds often
+    # repeat the title in `content`) so summary + sentiment see clean, unique text.
+    cleaned = dedupe_sentences(clean_text(combined))
     language = detect_language(cleaned)
     noise = is_noise_text(cleaned)
-    summary = summarize_text(cleaned)
+    if summarizer is not None:
+        summary, summary_meta = summarizer.summarize(cleaned)
+    else:
+        summary = summarize_text(cleaned)
+        summary_meta = {"source": "extractive", "available": False}
     entities = extract_entities(cleaned)
     relevance = relevance_score(company, cleaned, entities)
 
@@ -408,6 +584,14 @@ def enrich_text(company: str, title: str, content: str, sentiment_engine: Sentim
     if cleaned and language == "en" and not noise:
         sentiment_label, sentiment_score, sentiment_meta = sentiment_engine.analyze(cleaned)
 
+    # Notable people: HF NER proposes person candidates (best-effort); the curated
+    # watchlist also scans the text directly, so detection works even if NER is off.
+    ner_names: list[str] = []
+    ner_meta: dict[str, Any] = {"source": "disabled", "available": False}
+    if ner_engine is not None:
+        ner_names, ner_meta = ner_engine.persons(cleaned)
+    notable = notable_people_mod.detect(cleaned, ner_names)
+
     return EnrichmentResult(
         cleaned_text=cleaned,
         language=language,
@@ -417,9 +601,12 @@ def enrich_text(company: str, title: str, content: str, sentiment_engine: Sentim
         sentiment_score=sentiment_score,
         relevance_score=relevance,
         entities=entities,
+        notable_people=notable,
         model_confidence=sentiment_meta,
         pipeline_flags={
             "language_ok": language == "en",
             "noise_filtered": noise,
+            "ner": ner_meta,
+            "summary": summary_meta,
         },
     )

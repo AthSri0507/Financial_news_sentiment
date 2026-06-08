@@ -9,6 +9,7 @@ from xml.etree import ElementTree as ET
 import requests
 
 from app.connectors.base import Connector, IngestedItem
+from app.sectors import curated_tags
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class RSSConnector(Connector):
                         published_at=published_at,
                         engagement_metrics=None,
                         company_candidates=[company],
-                        sector_tags=sectors or ["Finance"],
+                        sector_tags=curated_tags(company),
                         raw_payload={"content_hash": content_hash},
                     )
                     items.append(item)

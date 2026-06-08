@@ -4,6 +4,7 @@ from typing import Optional
 import requests
 
 from app.connectors.base import Connector, IngestedItem
+from app.sectors import curated_tags
 from app.utils.retry import retry_with_backoff
 from datetime import datetime
 import hashlib
@@ -46,6 +47,7 @@ class NewsAPIConnector(Connector):
         self.source_name = "NewsAPI"
         self.api_key = api_key
         self.base_url = "https://newsapi.org/v2/everything"
+        self.rate_limited = False
 
     def validate_config(self) -> bool:
         """Validate API key is configured"""
@@ -59,6 +61,9 @@ class NewsAPIConnector(Connector):
         company: str,
         sectors: Optional[list[str]] = None,
         limit: int = 10,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        page: int = 1,
     ) -> list[IngestedItem]:
         """Fetch articles from NewsAPI filtered by company"""
         if not self.validate_config():
@@ -86,6 +91,9 @@ class NewsAPIConnector(Connector):
                 initial_delay=1.0,
                 query=query,
                 limit=limit,
+                from_date=from_date,
+                to_date=to_date,
+                page=page,
             )
 
             for article in response.get("articles", []):
@@ -101,16 +109,30 @@ class NewsAPIConnector(Connector):
 
         return items
 
-    def _fetch_articles(self, query: str, limit: int) -> dict:
+    def _fetch_articles(
+        self,
+        query: str,
+        limit: int,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        page: int = 1,
+    ) -> dict:
         """Fetch articles from NewsAPI with retryable HTTP request"""
         params = {
             "q": query,
             "sortBy": "publishedAt",
             "pageSize": min(limit, 100),
+            "page": max(1, page),
             "apiKey": self.api_key,
         }
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
 
         response = requests.get(self.base_url, params=params, timeout=10)
+        if response.status_code == 429:
+            self.rate_limited = True
         response.raise_for_status()
         return response.json()
 
@@ -154,7 +176,7 @@ class NewsAPIConnector(Connector):
                 published_at=published_at,
                 engagement_metrics=engagement_metrics,
                 company_candidates=[company],
-                sector_tags=["Technology", "Finance"],
+                sector_tags=curated_tags(company),
                 language="en",
                 raw_payload={
                     "article": article,

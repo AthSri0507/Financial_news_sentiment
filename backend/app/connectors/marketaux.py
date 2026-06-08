@@ -6,6 +6,7 @@ from typing import Optional
 import requests
 
 from app.connectors.base import Connector, IngestedItem
+from app.sectors import curated_tags
 from app.utils.retry import retry_with_backoff
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class MarketauxConnector(Connector):
         self.source_name = "Marketaux"
         self.api_key = api_key
         self.base_url = "https://api.marketaux.com/v1/news/all"
+        self.rate_limited = False
 
     def validate_config(self) -> bool:
         if not self.api_key:
@@ -61,6 +63,9 @@ class MarketauxConnector(Connector):
         company: str,
         sectors: Optional[list[str]] = None,
         limit: int = 10,
+        published_after: Optional[str] = None,
+        published_before: Optional[str] = None,
+        page: int = 1,
     ) -> list[IngestedItem]:
         if not self.validate_config():
             log.error("Marketaux not configured; skipping")
@@ -79,6 +84,9 @@ class MarketauxConnector(Connector):
                 company=company,
                 symbol=symbol,
                 limit=limit,
+                published_after=published_after,
+                published_before=published_before,
+                page=page,
             )
         except Exception as exc:
             log.error("Marketaux fetch failed: %s", exc)
@@ -95,18 +103,33 @@ class MarketauxConnector(Connector):
         log.info("Fetched %s articles from Marketaux for %s", len(items), company)
         return items
 
-    def _fetch_news(self, company: str, symbol: Optional[str], limit: int) -> dict:
+    def _fetch_news(
+        self,
+        company: str,
+        symbol: Optional[str],
+        limit: int,
+        published_after: Optional[str] = None,
+        published_before: Optional[str] = None,
+        page: int = 1,
+    ) -> dict:
         params = {
             "api_token": self.api_key,
             "language": "en",
             "limit": min(limit, 50),
             "sort": "published_desc",
             "search": company,
+            "page": max(1, page),
         }
         if symbol:
             params["symbols"] = symbol
+        if published_after:
+            params["published_after"] = published_after
+        if published_before:
+            params["published_before"] = published_before
 
         response = requests.get(self.base_url, params=params, timeout=10)
+        if response.status_code == 429:
+            self.rate_limited = True
         response.raise_for_status()
         return response.json()
 
@@ -139,7 +162,7 @@ class MarketauxConnector(Connector):
                 published_at=published_at,
                 engagement_metrics=None,
                 company_candidates=[company],
-                sector_tags=["Technology", "Finance"],
+                sector_tags=curated_tags(company),
                 language=(row.get("language") or "en"),
                 raw_payload={
                     "article": row,

@@ -7,7 +7,6 @@ from sqlalchemy.engine import Engine, make_url
 
 from .config import get_settings
 
-
 _engine: Engine | None = None
 log = logging.getLogger(__name__)
 
@@ -80,11 +79,40 @@ def check_db_health() -> tuple[bool, str]:
     return False, f"database unavailable: {last_error}"
 
 
+def _ensure_columns(engine) -> None:
+    """Add columns that ``create_all`` can't add to pre-existing tables.
+
+    ``create_all`` never ALTERs an existing table, so new columns on already-created
+    tables (e.g. ``processed_items.notable_people``) need an explicit, idempotent
+    ALTER. Postgres supports ``ADD COLUMN IF NOT EXISTS``; SQLite is guarded by a
+    PRAGMA check. Fresh databases already have the column via ``create_all`` — this
+    is a no-op there.
+    """
+    # (table, column, type) — JSON works on both Postgres and SQLite.
+    required = [("processed_items", "notable_people", "JSON")]
+    dialect = engine.dialect.name
+
+    with engine.begin() as conn:
+        for table, column, col_type in required:
+            try:
+                if dialect == "sqlite":
+                    rows = conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+                    if any(row[1] == column for row in rows):
+                        continue
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                else:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_type}"
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                log.warning("ensure_columns: could not add %s.%s: %s", table, column, exc)
+
+
 def init_db():
     """Initialize database tables on application startup"""
     import logging
     log = logging.getLogger(__name__)
-    
+
     try:
         from .models import Base
         engine = get_engine()
@@ -93,6 +121,7 @@ def init_db():
             return
         log.info("Creating database tables...")
         Base.metadata.create_all(engine)
+        _ensure_columns(engine)
         log.info("Database initialization complete")
     except Exception as exc:
         log.error(f"Failed to initialize database: {exc}", exc_info=True)

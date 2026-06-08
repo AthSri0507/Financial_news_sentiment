@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.connectors.base import Connector, IngestedItem
+from app.sectors import curated_tags
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ class RedditConnector(Connector):
                                 "comments": post.num_comments,
                             },
                             company_candidates=[company],
-                            sector_tags=["Technology", "Finance"],
+                            sector_tags=curated_tags(company),
                             language="en",
                             raw_payload={
                                 "post_id": post.id,

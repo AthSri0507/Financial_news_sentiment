@@ -1,0 +1,25 @@
+name: Scheduled Price Validation
+
+on:
+  schedule:
+    # Hourly — catches the 1h / 4h / 1d windows as they elapse.
+    - cron: "5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  trigger-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger price-validation endpoint
+        env:
+          BASE_URL: ${{ secrets.APP_BASE_URL }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$INGEST_TOKEN" ]; then
+            echo "APP_BASE_URL or INGEST_TOKEN is missing"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            -X POST "$BASE_URL/validate/run?limit=200" \
+            -H "Authorization: Bearer $INGEST_TOKEN"

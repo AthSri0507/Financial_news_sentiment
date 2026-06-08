@@ -3,7 +3,8 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models import ProcessedItem, RawItem
-from app.nlp import SentimentEngine, enrich_text
+from app.ner import NEREngine
+from app.nlp import SentimentEngine, SummarizationEngine, enrich_text
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +18,12 @@ def run_enrichment_pipeline(
     prefer_finbert: bool = False,
     finbert_min_confidence: float = 0.62,
     hf_api_key: str | None = None,
+    prefer_hf_ner: bool = False,
+    ner_model_id: str = "dslim/bert-base-NER",
+    prefer_hf_summary: bool = False,
+    summary_model_id: str = "sshleifer/distilbart-cnn-12-6",
+    summary_min_chars: int = 200,
+    summary_max_input_chars: int = 1500,
 ) -> dict[str, object]:
     """Enrich recent raw items and persist processed results."""
 
@@ -28,17 +35,34 @@ def run_enrichment_pipeline(
         finbert_min_confidence=finbert_min_confidence,
         hf_api_key=hf_api_key,
     )
+    ner_engine = NEREngine(
+        prefer_hf=prefer_hf_ner,
+        model_id=ner_model_id,
+        hf_api_key=hf_api_key,
+    )
+    summarizer = SummarizationEngine(
+        prefer_hf=prefer_hf_summary,
+        model_id=summary_model_id,
+        hf_api_key=hf_api_key,
+        min_chars=summary_min_chars,
+        max_input_chars=summary_max_input_chars,
+    )
 
     existing_processed = {
         raw_id for (raw_id,) in db_session.query(ProcessedItem.raw_item_id).all()
     }
 
+    # Over-fetch generously: in a multi-company world the most-recent raw items
+    # belong to many companies, and we must NOT relabel another company's items
+    # as this one (the candidate filter below enforces that).
     candidates = (
         db_session.query(RawItem)
         .order_by(RawItem.ingested_at.desc())
-        .limit(limit * 4)
+        .limit(limit * 20)
         .all()
     )
+
+    target_company = (company or "").strip().lower()
 
     inserted = 0
     skipped = 0
@@ -52,6 +76,12 @@ def run_enrichment_pipeline(
             skipped += 1
             continue
 
+        # Only enrich raw items that actually belong to this company. Items with
+        # no recorded candidates are allowed through (legacy/forward compatible).
+        candidate_names = [str(c).strip().lower() for c in (raw.company_candidates or [])]
+        if target_company and candidate_names and target_company not in candidate_names:
+            continue
+
         try:
             raw_text = f"{raw.title or ''} {raw.content or ''}".strip()
             if len(raw_text) > max_text_chars:
@@ -62,6 +92,8 @@ def run_enrichment_pipeline(
                 title=raw.title or "",
                 content=raw_text,
                 sentiment_engine=sentiment_engine,
+                ner_engine=ner_engine,
+                summarizer=summarizer,
             )
 
             if enriched.language != "en":
@@ -87,6 +119,7 @@ def run_enrichment_pipeline(
                 sentiment_score=enriched.sentiment_score,
                 relevance_score=enriched.relevance_score,
                 entities=enriched.entities,
+                notable_people=enriched.notable_people,
                 model_confidence=enriched.model_confidence,
                 pipeline_flags=enriched.pipeline_flags,
             )

@@ -1,9 +1,19 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, DateTime, JSON, Text, Index, Float, ForeignKey, Integer
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
-
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -28,7 +38,7 @@ class RawItem(Base):
     sector_tags = Column(JSON, nullable=True)
     language = Column(String(10), default="en", nullable=False)
     raw_payload = Column(JSON, nullable=True)
-    content_hash = Column(String(64), nullable=True)
+    content_hash = Column(String(64), nullable=True, index=True)
 
     __table_args__ = (
         # Unique constraint on (source_type, source_name, url) to prevent duplicates
@@ -60,6 +70,7 @@ class ProcessedItem(Base):
     relevance_score = Column(Float, nullable=False, index=True)
 
     entities = Column(JSON, nullable=True)
+    notable_people = Column(JSON, nullable=True)
     model_confidence = Column(JSON, nullable=True)
     pipeline_flags = Column(JSON, nullable=True)
 
@@ -99,6 +110,110 @@ class TimeSeriesSentiment(Base):
         ),
         Index("ix_time_series_company_bucket_start", "company", "bucket_start"),
     )
+
+
+class PriceValidation(Base):
+    """Post-publication market-reaction check for a processed article.
+
+    STRICTLY separate from the (causal) impact score — this is observational
+    evidence only and is never read by impact/ranking/timeline/correlation logic.
+    """
+
+    __tablename__ = "price_validations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    processed_item_id = Column(
+        UUID(as_uuid=True), ForeignKey("processed_items.id"), nullable=False, index=True
+    )
+    company = Column(String(255), nullable=False, index=True)
+    ticker = Column(String(50), nullable=True)
+    validation_window = Column(String(20), nullable=False)  # 1h/4h/1d
+
+    baseline_price = Column(Float, nullable=True)
+    window_price = Column(Float, nullable=True)
+    price_change_pct = Column(Float, nullable=True)
+    moved_market = Column(Boolean, nullable=True)
+    validation_confidence = Column(Float, nullable=True)
+    price_validated = Column(Boolean, nullable=False, default=False)
+    validation_status = Column(String(30), nullable=False, default="pending")
+
+    baseline_at = Column(DateTime, nullable=True)
+    window_target_at = Column(DateTime, nullable=False)
+    validated_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_price_validation_item_window",
+            "processed_item_id",
+            "validation_window",
+            unique=True,
+        ),
+    )
+
+
+class CompanyFetchState(Base):
+    """Per-company freshness cooldown / last-refresh bookkeeping."""
+
+    __tablename__ = "company_fetch_state"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company = Column(String(255), nullable=False, unique=True, index=True)
+    last_attempted_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_item_count = Column(Integer, nullable=False, default=0)
+
+
+class ApiUsage(Base):
+    """Shared daily paid-API call budget (on-view refresh + cron both record here)."""
+
+    __tablename__ = "api_usage"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider = Column(String(50), nullable=False)
+    day = Column(String(10), nullable=False)  # YYYY-MM-DD (UTC)
+    count = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_api_usage_provider_day", "provider", "day", unique=True),
+    )
+
+
+class AgreementSnapshot(Base):
+    """Daily snapshot of the validation-agreement KPI (model quality over time)."""
+
+    __tablename__ = "agreement_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    day = Column(String(10), nullable=False)  # YYYY-MM-DD (UTC)
+    window = Column(String(20), nullable=False)
+    impact_threshold = Column(Float, nullable=False)
+    n_high_impact = Column(Integer, nullable=False, default=0)
+    n_moved = Column(Integer, nullable=False, default=0)
+    agreement_pct = Column(Float, nullable=True)
+    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_agreement_day_window_threshold",
+            "day",
+            "window",
+            "impact_threshold",
+            unique=True,
+        ),
+    )
+
+
+class CompanySector(Base):
+    """Cached company -> sector resolution (curated seed, external API, or manual)."""
+
+    __tablename__ = "company_sectors"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company = Column(String(255), nullable=False, unique=True, index=True)
+    ticker = Column(String(50), nullable=True)
+    sector = Column(String(100), nullable=False)
+    source = Column(String(20), nullable=False, default="api")  # curated/api/manual
+    resolved_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class SectorCorrelation(Base):
