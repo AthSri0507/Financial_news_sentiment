@@ -17,6 +17,7 @@ Connectors use the offline :func:`curated_sector` only (no DB/network during
 bulk ingestion); analytics is the source of truth and uses :func:`resolve_sector`.
 """
 
+import re
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -208,6 +209,46 @@ def default_basket() -> list[str]:
         else:
             basket.append(sorted(by_sector[sector])[0])
     return basket
+
+
+# Lazily-built index of seeded company names/aliases -> ticker, longest-first.
+_ARTICLE_TICKER_INDEX: list[tuple[str, str]] | None = None
+
+
+def _ticker_index() -> list[tuple[str, str]]:
+    global _ARTICLE_TICKER_INDEX
+    if _ARTICLE_TICKER_INDEX is None:
+        seed = market_data.TICKER_SEED
+        names: dict[str, str] = {}
+        for canonical, ticker in seed.items():
+            names[canonical.lower()] = ticker
+        for alias, canonical in ALIASES.items():
+            if canonical in seed:
+                names.setdefault(alias.lower(), seed[canonical])
+        # Longest names first so "adani power" wins over a bare "adani".
+        _ARTICLE_TICKER_INDEX = sorted(names.items(), key=lambda kv: len(kv[0]), reverse=True)
+    return _ARTICLE_TICKER_INDEX
+
+
+def ticker_for_article(title: str, company: str) -> str | None:
+    """Best ticker for an article: the specific seeded company NAMED in the headline,
+    else the stored/search company, else None.
+
+    Avoids the umbrella problem where every "Adani" article shared one fuzzy ticker:
+    "Adani Power shares gain 3%" -> ADANIPOWER.NS, "Adani Enterprises, ..." -> ADANIENT.NS.
+    """
+    text = (title or "").lower()
+    if text:
+        best: tuple[tuple[int, int], str] | None = None  # ((start, -len), ticker)
+        for name, ticker in _ticker_index():
+            m = re.search(rf"\b{re.escape(name)}\b", text)
+            if m:
+                key = (m.start(), -len(name))
+                if best is None or key < best[0]:
+                    best = (key, ticker)
+        if best is not None:
+            return best[1]
+    return market_data.TICKER_SEED.get(normalize_company(company))
 
 
 def resolve_sector(db: Session, name: str) -> str:

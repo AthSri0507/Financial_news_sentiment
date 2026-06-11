@@ -12,137 +12,168 @@
 </head>
 <body>
   <div class="ambient-bg"></div>
-  <main class="app-shell">
-    <header class="hero">
-      <div>
-        <p class="eyebrow"></p>
-        <h1>PulseScope</h1>
-        <p class="subtitle">Cross-sector finance sentiment with lead-lag analytics and explainable impact scoring.</p>
-      </div>
-      <div class="status-badge" id="healthBadge">Checking API...</div>
-    </header>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
-    <section class="panel controls">
-      <h2>Search</h2>
-      <div class="control-grid">
-        <label>
-          API Base URL
-          <input id="apiBaseUrl" type="text" placeholder="http://127.0.0.1:8000" />
-        </label>
-        <label>
-          Company
-          <input id="company" type="text" value="Apple" />
-        </label>
-        <label>
-          Time Window (days)
-          <input id="windowDays" type="number" min="1" max="90" value="14" />
-        </label>
-        <label>
-          Bucket
-          <select id="bucket">
-            <option value="day" selected>Day</option>
-            <option value="hour">Hour</option>
-          </select>
-        </label>
-        <label>
-          Correlation Method
-          <select id="method">
-            <option value="pearson" selected>Pearson</option>
-            <option value="spearman">Spearman</option>
-          </select>
-        </label>
-        <label>
-          Source Filter
-          <select id="sourceFilter">
-            <option value="all" selected>All Sources</option>
-          </select>
-        </label>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <div>
+        <h1>PulseScope</h1>
+        <p class="tagline">Cross-sector finance sentiment · explainable impact · price validation</p>
       </div>
-      <div class="sector-filter-wrap">
-        <p>Sector Filter</p>
-        <div id="sectorFilter" class="chip-row"></div>
-      </div>
-      <div class="actions">
+    </div>
+    <nav class="tabs" id="tabNav">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="feed">News Feed</button>
+      <button class="tab" data-tab="correlations">Correlations</button>
+      <button class="tab" data-tab="validation">Validation</button>
+      <button class="tab" data-tab="observability">Observability</button>
+    </nav>
+    <div class="topbar-status">
+      <span id="statusIndicator" class="status-indicator idle">Idle</span>
+      <span id="healthBadge" class="status-badge">Checking API…</span>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <!-- Toolbar -->
+    <section class="toolbar">
+      <div class="toolbar-main">
+        <label class="company-field">
+          <span>Company</span>
+          <input id="company" type="text" value="Apple" autocomplete="off" />
+        </label>
         <button id="runQuery" class="btn btn-primary">Run Analysis</button>
-        <button id="forceRecompute" class="btn btn-ghost">Recompute Analytics</button>
+        <button id="forceRecompute" class="btn btn-ghost">Recompute</button>
+        <span id="freshnessBadge" class="freshness"></span>
       </div>
-      <div id="freshnessBadge" class="freshness"></div>
+      <details class="filters" id="filtersDrawer">
+        <summary>⚙ Filters</summary>
+        <div class="control-grid">
+          <label>API Base URL<input id="apiBaseUrl" type="text" placeholder="http://127.0.0.1:8000" /></label>
+          <label>Window (days)<input id="windowDays" type="number" min="1" max="90" value="14" /></label>
+          <label>Bucket
+            <select id="bucket"><option value="day" selected>Day</option><option value="hour">Hour</option></select>
+          </label>
+          <label>Correlation Method
+            <select id="method"><option value="pearson" selected>Pearson</option><option value="spearman">Spearman</option></select>
+          </label>
+          <label>Source
+            <select id="sourceFilter"><option value="all" selected>All Sources</option></select>
+          </label>
+        </div>
+        <div class="sector-filter-wrap">
+          <p class="field-label">Sector Filter</p>
+          <div id="sectorFilter" class="chip-row"></div>
+        </div>
+      </details>
     </section>
 
-    <section class="grid-2">
+    <!-- ===== OVERVIEW ===== -->
+    <section class="tab-view active" id="view-overview">
+      <div id="snapshot" class="snapshot-hero"></div>
+      <div id="kpiStrip" class="kpi-strip"></div>
+      <div class="grid-2">
+        <article class="panel">
+          <div class="panel-head"><h2>Market Movers</h2><span class="hint">click a name to explore their stories</span></div>
+          <div id="marketMovers" class="movers"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><h2>Top Stories</h2><span class="hint">highest predicted impact</span></div>
+          <div id="topStories" class="top-stories"></div>
+        </article>
+      </div>
       <article class="panel">
-        <h2>Timeline Sentiment + Confidence</h2>
-        <label class="smooth-toggle">
-          <input type="checkbox" id="smoothToggle" /> Smooth (3-pt trend)
-        </label>
+        <div class="panel-head">
+          <h2>Sentiment Timeline</h2>
+          <label class="smooth-toggle"><input type="checkbox" id="smoothToggle" /> Smooth (3-pt trend)</label>
+        </div>
         <div id="timelineChart" class="chart"></div>
       </article>
+    </section>
+
+    <!-- ===== NEWS FEED ===== -->
+    <section class="tab-view" id="view-feed">
+      <div class="feed-filters" id="feedFilters">
+        <button class="ftab active" data-filter="all">All</button>
+        <button class="ftab" data-filter="positive">Positive</button>
+        <button class="ftab" data-filter="neutral">Neutral</button>
+        <button class="ftab" data-filter="negative">Negative</button>
+        <button class="ftab ftab-movers" data-filter="movers">★ Market Movers</button>
+      </div>
+      <div id="feedHeader" class="feed-header"></div>
+      <div id="feedCards" class="feed-cards"></div>
+    </section>
+
+    <!-- ===== CORRELATIONS ===== -->
+    <section class="tab-view" id="view-correlations">
+      <div class="explainer">
+        <strong>How to read this:</strong> <em>Correlation</em> = sectors whose sentiment moves together (red ↑ together, blue ↑ one as the other falls).
+        <em>Lead/Lag</em> = one sector tends to move a few days <em>before</em> another.
+      </div>
+      <div id="corrInsight" class="insight-line"></div>
+      <div class="grid-2">
+        <article class="panel">
+          <h2>Sector Correlation Heatmap</h2>
+          <div id="heatmapChart" class="chart"></div>
+        </article>
+        <article class="panel">
+          <h2>Lead / Lag Signals</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Pair</th><th>Best Lag</th><th>Correlation</th><th>n</th><th>Leader</th></tr></thead>
+              <tbody id="leadLagTable"></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
       <article class="panel">
-        <h2>Sector Correlation Heatmap</h2>
-        <div id="heatmapChart" class="chart"></div>
+        <div class="panel-head"><h2>Sector Coverage</h2><span class="hint">progress toward correlation eligibility (≥5 days)</span></div>
+        <div id="sectorCoverage" class="coverage"></div>
       </article>
     </section>
 
-    <section class="grid-2">
-      <article class="panel">
-        <h2>Ranked Feed Cards</h2>
-        <div id="feedCards" class="feed-cards"></div>
-      </article>
-      <article class="panel">
-        <h2>Lead/Lag Signals</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Pair</th>
-                <th>Best Lag</th>
-                <th>Correlation</th>
-                <th>n</th>
-                <th>Leader</th>
-              </tr>
-            </thead>
-            <tbody id="leadLagTable"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
-
-    <section class="panel observability">
-      <h2>Observability</h2>
-      <div class="obs-grid">
-        <div class="obs-card">
-          <p>Last Pipeline Run</p>
-          <strong id="lastRun">-</strong>
-        </div>
-        <div class="obs-card">
-          <p>Failed Jobs (recent)</p>
-          <strong id="failedJobs">0</strong>
-        </div>
-        <div class="obs-card">
-          <p>API Latency Snapshot</p>
-          <strong id="latency">-</strong>
-        </div>
+    <!-- ===== VALIDATION ===== -->
+    <section class="tab-view" id="view-validation">
+      <div id="validationHero" class="validation-hero"></div>
+      <div class="grid-2">
+        <article class="panel">
+          <div class="panel-head"><h2>Market Reaction Distribution</h2><span class="hint">post-publication price moves (1d)</span></div>
+          <div id="reactionDist" class="reaction-dist"></div>
+        </article>
+        <article class="panel">
+          <h2>Model Agreement Over Time</h2>
+          <div id="agreementSpark" class="chart chart-sm"></div>
+        </article>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Model Energy &amp; Carbon <span class="muted-label">(estimated, not measured)</span></h2>
-      <div class="obs-grid">
-        <div class="obs-card">
-          <p>Total Inferences</p>
-          <strong id="energyInferences">-</strong>
+    <!-- ===== OBSERVABILITY ===== -->
+    <section class="tab-view" id="view-observability">
+      <div id="obsInsight" class="insight-line"></div>
+      <article class="panel emphasized">
+        <div class="panel-head">
+          <h2>Model Energy &amp; Carbon</h2>
+          <span class="badge estimate-badge">estimated · not measured</span>
         </div>
-        <div class="obs-card">
-          <p>Estimated Energy</p>
-          <strong id="energyKwh">-</strong>
+        <div class="obs-grid">
+          <div class="obs-card"><p>Total Inferences</p><strong id="energyInferences">—</strong></div>
+          <div class="obs-card"><p>Estimated Energy</p><strong id="energyKwh">—</strong></div>
+          <div class="obs-card"><p>Estimated CO₂e</p><strong id="energyCo2">—</strong></div>
         </div>
-        <div class="obs-card">
-          <p>Estimated CO₂e</p>
-          <strong id="energyCo2">-</strong>
+        <div id="energyBreakdown" class="energy-breakdown"></div>
+        <p id="energyMethodology" class="energy-note"></p>
+      </article>
+      <article class="panel">
+        <h2>Pipeline &amp; API Health</h2>
+        <div class="obs-grid">
+          <div class="obs-card"><p>Last Pipeline Run</p><strong id="lastRun">—</strong></div>
+          <div class="obs-card"><p>Empty Buckets (recent)</p><strong id="failedJobs">0</strong></div>
+          <div class="obs-card"><p>API Latency</p><strong id="latency">—</strong></div>
+          <div class="obs-card"><p>NewsAPI Quota Left</p><strong id="quotaNews">—</strong></div>
+          <div class="obs-card"><p>Marketaux Quota Left</p><strong id="quotaMarketaux">—</strong></div>
         </div>
-      </div>
-      <div id="energyBreakdown" class="energy-breakdown"></div>
-      <p id="energyMethodology" class="energy-note"></p>
+      </article>
     </section>
   </main>
 

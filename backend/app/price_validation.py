@@ -15,10 +15,9 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app import market_data
 from app.config import get_settings
 from app.models import AgreementSnapshot, PriceValidation, ProcessedItem, RawItem
-from app.sectors import normalize_company
+from app.sectors import ticker_for_article
 
 log = logging.getLogger(__name__)
 
@@ -116,20 +115,6 @@ def _validate_window(
     return "validated"
 
 
-def _resolve_ticker_cached(cache: dict[str, str | None], company: str) -> str | None:
-    """Resolve a ticker for price validation using the CURATED SEED ONLY.
-
-    Precision over coverage: a fuzzy yfinance search can return a wrong symbol for
-    umbrella/ambiguous names (bare "Tata"/"Adani"), producing misleading price
-    reactions. Seeded companies (incl. the Tata/Adani constituents) validate
-    normally; unmapped names return None -> "Price data unavailable".
-    """
-    canonical = normalize_company(company)
-    if canonical not in cache:
-        cache[canonical] = market_data.TICKER_SEED.get(canonical)
-    return cache[canonical]
-
-
 def _compute_window(
     db_session: Session,
     processed,
@@ -155,6 +140,19 @@ def _compute_window(
         )
         db_session.add(row)
         existing[window] = row
+
+    # Heal stale rows: if the resolved ticker changed (e.g. an old fuzzy/umbrella
+    # ticker), re-open the row so it's recomputed against the correct ticker.
+    if row.ticker != ticker:
+        row.ticker = ticker
+        row.price_validated = False
+        row.validation_status = "pending"
+        row.baseline_price = None
+        row.window_price = None
+        row.price_change_pct = None
+        row.moved_market = None
+        row.validation_confidence = None
+        row.validated_at = None
 
     if row.price_validated:
         return row.validation_status
@@ -208,11 +206,10 @@ def run_validations(
     rows = query.order_by(RawItem.published_at.desc()).limit(limit).all()
 
     counts: dict[str, int] = {}
-    ticker_cache: dict[str, str | None] = {}
 
     for processed, raw in rows:
         published = _to_naive_utc(raw.published_at)
-        ticker = _resolve_ticker_cached(ticker_cache, processed.company)
+        ticker = ticker_for_article(raw.title, processed.company)
         existing = _existing_rows(db_session, processed.id)
         for window in windows:
             status = _compute_window(
@@ -247,7 +244,6 @@ def ensure_validations(
     threshold = settings.price_move_threshold_pct
     grace = timedelta(days=settings.price_validation_no_data_grace_days)
     reference = _to_naive_utc(now or datetime.utcnow())
-    ticker_cache: dict[str, str | None] = {}
 
     try:
         rows = (
@@ -259,7 +255,7 @@ def ensure_validations(
         )
         for processed, raw in rows:
             published = _to_naive_utc(raw.published_at)
-            ticker = _resolve_ticker_cached(ticker_cache, processed.company)
+            ticker = ticker_for_article(raw.title, processed.company)
             existing = _existing_rows(db_session, processed.id)
             for window in windows:
                 _compute_window(

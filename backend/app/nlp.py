@@ -23,6 +23,25 @@ _FINANCE_SIGNAL = re.compile(
     re.IGNORECASE,
 )
 
+# Company/result-level finance keywords that mark a sentence as on-topic for
+# sentiment (per the desired sentiment-text selection).
+_FINANCE_KEYWORDS = re.compile(
+    r"\b(profit|revenue|guidance|earnings|upgrade|downgrade|target price|growth|"
+    r"loss(?:es)?|acquisition|contract|expansion|bullish|bearish|gain|rally|"
+    r"results?|margin|dividend|order book|stake)\b",
+    re.IGNORECASE,
+)
+
+# Broad-market / macro sentences that are usually unrelated noise for a single
+# stock's sentiment. Dropped unless the sentence also names the company.
+_MACRO_NOISE = re.compile(
+    r"\b(sensex|nifty|gift nifty|global markets?|world markets?|asian markets?|"
+    r"european markets?|wall street|dow(?: jones)?|nasdaq|s&p|treasury yields?|"
+    r"bond yields?|crude|brent|wti|oil prices?|dollar index|forex|"
+    r"broader market|benchmark index)\b",
+    re.IGNORECASE,
+)
+
 DEFAULT_COMPANY_ALIASES: dict[str, list[str]] = {
     "apple": ["apple", "aapl", "apple inc", "iphone", "ipad", "mac"],
     "microsoft": ["microsoft", "msft", "azure", "xbox", "windows"],
@@ -263,6 +282,39 @@ def relevance_score(company: str, text: str, entities: list[str]) -> float:
         score -= 0.2
 
     return round(max(0.0, min(1.0, score)), 4)
+
+
+def build_sentiment_text(title: str, content: str, company: str) -> str:
+    """Headline + subject/finance-relevant body sentences, minus macro noise.
+
+    Sentiment should reflect the article's stance on its SUBJECT, not unrelated
+    broad-market context (e.g. "Sensex slipped 117 points...") which can flip the
+    label. We keep the headline plus the first few body sentences that mention the
+    company or carry a finance signal, and drop macro/market-noise sentences unless
+    they also name the company.
+    """
+    title = clean_text(title or "")
+    body = clean_text(content or "")
+    aliases = [a for a in get_company_aliases(company) if a]
+
+    kept: list[str] = []
+    for sentence in _split_sentences(body):
+        low = sentence.lower()
+        mentions_company = any(a in low for a in aliases)
+        if not mentions_company and _MACRO_NOISE.search(sentence):
+            continue
+        if (
+            mentions_company
+            or _FINANCE_KEYWORDS.search(sentence)
+            or _FINANCE_SIGNAL.search(sentence)
+        ):
+            kept.append(sentence)
+        if len(kept) >= 3:
+            break
+
+    parts = ([title] if title else []) + kept
+    text = dedupe_sentences(". ".join(p.rstrip(". ") for p in parts if p))
+    return text or title or body[:300]
 
 
 class SentimentEngine:
@@ -580,9 +632,17 @@ def enrich_text(
     sentiment_label = "neutral"
     sentiment_score = 0.0
     sentiment_meta: dict[str, Any] = {"model": "none", "confidence": 0.0}
+    sentiment_input = "none"
 
     if cleaned and language == "en" and not noise:
-        sentiment_label, sentiment_score, sentiment_meta = sentiment_engine.analyze(cleaned)
+        # Score sentiment on a subject-relevant slice (headline + company/finance
+        # sentences, macro-noise dropped) rather than the whole body, so off-topic
+        # market context can't flip the label.
+        sent_text = build_sentiment_text(title, content, company)
+        sentiment_input = "subject_relevant"
+        sentiment_label, sentiment_score, sentiment_meta = sentiment_engine.analyze(
+            sent_text or cleaned
+        )
 
     # Notable people: HF NER proposes person candidates (best-effort); the curated
     # watchlist also scans the text directly, so detection works even if NER is off.
@@ -608,5 +668,6 @@ def enrich_text(
             "noise_filtered": noise,
             "ner": ner_meta,
             "summary": summary_meta,
+            "sentiment_input": sentiment_input,
         },
     )

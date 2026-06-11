@@ -19,6 +19,7 @@ from .db import check_db_health, get_engine, init_db
 from .energy import estimate_energy
 from .enrichment import run_enrichment_pipeline
 from .ingestion import store_raw_items
+from .market_movers import market_movers
 from .models import CompanyFetchState, PriceValidation
 from .price_validation import (
     agreement_history,
@@ -851,6 +852,25 @@ def validation_agreement_endpoint(
     except Exception as exc:
         log.error("Validation agreement failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"agreement error: {exc}")
+    finally:
+        session.close()
+
+
+@app.get("/market-movers")
+def market_movers_endpoint(window_days: int = 7, limit: int = 8) -> dict[str, object]:
+    """Most-mentioned / highest-impact notable people across recent articles."""
+    engine = get_engine()
+    if not engine:
+        raise HTTPException(status_code=503, detail="database not configured")
+
+    session = Session(engine)
+    try:
+        result = market_movers(session, window_days=window_days, limit=limit)
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return result
+    except Exception as exc:
+        log.error("Market movers endpoint failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"market-movers error: {exc}")
     finally:
         session.close()
 
