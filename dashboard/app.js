@@ -783,7 +783,7 @@ function computeMoversFromItems(items) {
 }
 async function fetchAgreement() {
   try {
-    const r = await fetch(apiUrl("/validation/agreement", { window: "1d", window_days: 60 }));
+    const r = await fetch(apiUrl("/validation/agreement", { window: "1d", window_days: 60, impact_threshold: 0.6 }));
     if (r.ok) state.agreement = await r.json();
     const h = await fetch(apiUrl("/validation/agreement/history", { window: "1d", days: 60 }));
     if (h.ok) state.agreementHistory = (await h.json()).series || [];
@@ -793,7 +793,7 @@ async function fetchAgreement() {
 // ---------- main ----------
 async function runAnalysis(force) {
   const company = el.company.value.trim() || "Apple";
-  const windowDays = Number(el.windowDays.value || 14);
+  const windowDays = Number(el.windowDays.value || 30);
   const bucket = el.bucket.value;
   const method = el.method.value;
   localStorage.setItem("dashboard.apiBaseUrl", el.apiBaseUrl.value);

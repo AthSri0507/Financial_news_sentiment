@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
@@ -51,7 +51,7 @@
         <summary>⚙ Filters</summary>
         <div class="control-grid">
           <label>API Base URL<input id="apiBaseUrl" type="text" placeholder="http://127.0.0.1:8000" /></label>
-          <label>Window (days)<input id="windowDays" type="number" min="1" max="90" value="14" /></label>
+          <label>Window (days)<input id="windowDays" type="number" min="1" max="90" value="30" /></label>
           <label>Bucket
             <select id="bucket"><option value="day" selected>Day</option><option value="hour">Hour</option></select>
           </label>
@@ -177,6 +177,6 @@
     </section>
   </main>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
