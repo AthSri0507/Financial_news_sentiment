@@ -176,42 +176,80 @@ function renderTimeline(timeline) {
   const x = timeline.map((p) => p.bucket_start);
   const y = timeline.map((p) => p.weighted_sentiment);
   const counts = timeline.map((p) => p.item_count || 0);
-  const confidence = timeline.map((p) => p.confidence_score || 0);
+  const conf = timeline.map((p) => p.confidence_score || 0);
 
-  const traces = [
-    {
-      x, y: counts, type: "bar", name: "Items", yaxis: "y2",
-      marker: { color: "rgba(73,198,180,0.22)" },
-      hovertemplate: "%{y} items<extra></extra>",
+  // Padded, symmetric-ish y range so the line breathes and 0 stays meaningful.
+  const finite = y.filter((v) => typeof v === "number");
+  let lo = -0.25, hi = 0.25;
+  if (finite.length) { lo = Math.min(...finite, 0); hi = Math.max(...finite, 0); }
+  const pad = Math.max(0.08, (hi - lo) * 0.28);
+  const yr = [Math.max(-1, lo - pad), Math.min(1, hi + pad)];
+  const maxCount = Math.max(1, ...counts);
+
+  const dotColor = (v) => (v == null ? "#8aa0b4" : v > 0.05 ? "#7ee08a" : v < -0.05 ? "#ff7b7b" : "#ffc857");
+
+  // Volume (article count) — subtle bars confined to the lower quarter of the plot.
+  const vol = {
+    x, y: counts, type: "bar", name: "Articles", yaxis: "y2",
+    marker: { color: "rgba(120,175,205,0.16)", line: { width: 0 } },
+    hoverinfo: "skip",
+  };
+  // Sentiment — smooth line + soft area fill to zero.
+  const area = {
+    x, y, type: "scatter", mode: "lines", name: "Sentiment",
+    line: { color: "#49c6b4", width: 2.6, shape: "spline", smoothing: 0.6 },
+    fill: "tozeroy", fillcolor: "rgba(73,198,180,0.09)", connectgaps: false,
+    hoverinfo: "skip",
+  };
+  // Sign-coloured points carry the hover detail (sentiment + articles + confidence).
+  const dots = {
+    x, y, type: "scatter", mode: "markers", name: "", showlegend: false,
+    marker: {
+      size: conf.map((c) => 5 + c * 4),
+      color: y.map(dotColor),
+      line: { color: "rgba(7,16,27,0.85)", width: 1.2 },
     },
-    {
-      x, y, mode: "lines+markers", name: "Weighted Sentiment",
-      line: { color: "#49c6b4", width: 3 }, connectgaps: false,
-      marker: {
-        size: confidence.map((c) => 8 + c * 9), color: confidence,
-        colorscale: "YlGnBu", cmin: 0, cmax: 1, showscale: true,
-        colorbar: { title: "Conf", thickness: 10 },
-      },
-    },
-  ];
+    customdata: timeline.map((p) => [p.item_count || 0, p.confidence_score || 0]),
+    hovertemplate: "<b>%{y:.2f}</b> sentiment<br>%{customdata[0]} articles · conf %{customdata[1]:.2f}<extra></extra>",
+  };
+
+  const traces = [vol, area, dots];
   if (el.smoothToggle && el.smoothToggle.checked) {
     traces.push({
       x, y: movingAverage(y, 3), mode: "lines", name: "Trend",
-      line: { color: "#ffc857", width: 2, dash: "dash" }, connectgaps: false,
+      line: { color: "#ffc857", width: 1.8, dash: "dot", shape: "spline" },
+      connectgaps: false, hoverinfo: "skip",
     });
   }
-  const finite = y.filter((v) => typeof v === "number");
-  let yr = [-1, 1];
-  if (finite.length) {
-    const lo = Math.min(...finite), hi = Math.max(...finite);
-    const pad = Math.max(0.05, (hi - lo) * 0.2);
-    yr = [Math.max(-1, lo - pad), Math.min(1, hi + pad)];
-  }
+
+  const shapes = [
+    // faint polarity bands: green above zero, red below
+    { type: "rect", xref: "paper", x0: 0, x1: 1, y0: 0, y1: yr[1], fillcolor: "rgba(126,224,138,0.045)", line: { width: 0 }, layer: "below" },
+    { type: "rect", xref: "paper", x0: 0, x1: 1, y0: yr[0], y1: 0, fillcolor: "rgba(255,123,123,0.045)", line: { width: 0 }, layer: "below" },
+    // zero baseline
+    { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "rgba(234,244,255,0.22)", width: 1, dash: "dot" } },
+  ];
+
   Plotly.newPlot(el.timelineChart, traces, {
-    ...PLOT_LAYOUT, margin: { l: 42, r: 48, b: 44, t: 12 }, showlegend: false,
-    yaxis: { title: "Sentiment", range: yr, gridcolor: "rgba(255,255,255,0.06)" },
-    yaxis2: { title: "Items", overlaying: "y", side: "right", showgrid: false, rangemode: "tozero" },
-    xaxis: { gridcolor: "rgba(255,255,255,0.06)" },
+    ...PLOT_LAYOUT,
+    margin: { l: 44, r: 18, b: 34, t: 10 },
+    showlegend: false,
+    hovermode: "x unified",
+    shapes,
+    bargap: 0.55,
+    yaxis: {
+      range: yr, zeroline: false, tickformat: ".1f", tickfont: { size: 10 },
+      gridcolor: "rgba(255,255,255,0.05)", ticklen: 0,
+    },
+    yaxis2: {
+      overlaying: "y", side: "right", showgrid: false, rangemode: "tozero",
+      range: [0, maxCount * 4], showticklabels: false, fixedrange: true,
+    },
+    xaxis: {
+      tickformat: "%b %d", tickfont: { size: 10 }, showgrid: false,
+      ticks: "outside", ticklen: 3, tickcolor: "rgba(255,255,255,0.12)",
+    },
+    hoverlabel: { bgcolor: "rgba(10,20,32,0.96)", bordercolor: "rgba(73,198,180,0.4)", font: { color: "#eaf4ff", size: 11 } },
   }, { responsive: true, displayModeBar: false });
 }
 
