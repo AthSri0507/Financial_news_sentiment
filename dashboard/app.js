@@ -487,7 +487,7 @@ function renderSnapshot() {
 function renderMarketMovers() {
   const mm = state.movers;
   if (!mm || !(mm.most_mentioned || []).length) {
-    el.marketMovers.innerHTML = "<p class='empty-note'>No notable people detected in this window.</p>";
+    el.marketMovers.innerHTML = "<p class='empty-note'>No market movers in this company's stories.</p>";
     return;
   }
   const max = mm.most_mentioned[0].article_count || 1;
@@ -759,11 +759,27 @@ async function checkHealth() {
 }
 
 // ---------- side fetches ----------
-async function fetchMovers(windowDays) {
-  try {
-    const r = await fetch(apiUrl("/market-movers", { window_days: windowDays, limit: 8 }));
-    if (r.ok) state.movers = await r.json();
-  } catch (e) { /* ignore */ }
+// Market Movers are derived from THIS company's feed so the panel always matches
+// the "Market Movers (N)" feed filter — a notable person only appears if they
+// actually show up in the current company's stories.
+function computeMoversFromItems(items) {
+  const map = new Map();
+  (items || []).forEach((it) => {
+    (it.notable_people || []).forEach((p) => {
+      if (!p || !p.name) return;
+      let e = map.get(p.name);
+      if (!e) { e = { name: p.name, role: p.role, article_count: 0, _imp: 0, headline: it.title }; map.set(p.name, e); }
+      e.article_count += 1;
+      e._imp += Number(it.impact_score || 0);
+    });
+  });
+  const arr = [...map.values()].map((e) => ({
+    name: e.name, role: e.role, article_count: e.article_count,
+    avg_impact: e.article_count ? Number((e._imp / e.article_count).toFixed(4)) : 0,
+    headline: e.headline,
+  }));
+  arr.sort((a, b) => b.article_count - a.article_count || b.avg_impact - a.avg_impact);
+  return { distinct_people: arr.length, most_mentioned: arr };
 }
 async function fetchAgreement() {
   try {
@@ -795,7 +811,8 @@ async function runAnalysis(force) {
 
     state.query = await queryResp.json();
     state.sectorRaw = await sectorResp.json();
-    await Promise.all([fetchMovers(windowDays), fetchAgreement()]);
+    state.movers = computeMoversFromItems(state.query.items);
+    await fetchAgreement();
 
     // source options
     const sources = new Set(["all"]);
