@@ -141,18 +141,29 @@ label { display: flex; flex-direction: column; gap: 5px; color: var(--text-1); f
 
 /* ---------- snapshot hero ---------- */
 .snapshot-hero {
-  background: linear-gradient(135deg, rgba(73, 198, 180, 0.12), rgba(13, 28, 45, 0.7));
-  border: 1px solid rgba(73, 198, 180, 0.3); border-radius: var(--radius);
-  padding: 18px 20px; margin-bottom: var(--space);
+  background: linear-gradient(135deg, rgba(73, 198, 180, 0.08), rgba(13, 28, 45, 0.72));
+  border: 1px solid rgba(73, 198, 180, 0.22); border-radius: var(--radius);
+  padding: 16px 20px 18px; margin-bottom: var(--space);
 }
-.snap-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
-.snap-co { color: var(--text-1); font-family: "IBM Plex Mono", monospace; font-size: 0.82rem; }
-.snap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
-.snap-item { display: flex; gap: 11px; align-items: flex-start; }
-.snap-ic { font-size: 1.1rem; opacity: 0.9; }
-.snap-item p { margin: 0; color: var(--text-2); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
-.snap-item strong { display: block; margin-top: 3px; font-weight: 500; font-size: 0.92rem; line-height: 1.35; }
-.snap-pill { display: inline-block; background: rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 1px 7px; font-size: 0.72rem; font-family: "IBM Plex Mono", monospace; color: var(--text-1); }
+.snap-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.snap-co { color: var(--text-1); font-family: "IBM Plex Mono", monospace; font-size: 0.82rem; font-weight: 500; }
+.snap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+.snap-item { display: flex; gap: 12px; align-items: flex-start; padding: 2px 20px; border-left: 1px solid rgba(255, 255, 255, 0.07); }
+.snap-item:first-child { padding-left: 0; border-left: none; }
+.snap-ic {
+  flex: 0 0 32px; height: 32px; display: grid; place-items: center;
+  border-radius: 9px; background: rgba(73, 198, 180, 0.12);
+  border: 1px solid rgba(73, 198, 180, 0.22); color: var(--accent);
+}
+.snap-ic svg { width: 17px; height: 17px; }
+.snap-body { min-width: 0; }
+.snap-item p { margin: 0; color: var(--text-2); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; }
+.snap-item strong { display: block; margin-top: 5px; font-weight: 500; font-size: 0.9rem; line-height: 1.38; color: var(--text-0); }
+.snap-pill { display: inline-block; margin-top: 2px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 5px; padding: 1px 7px; font-size: 0.7rem; font-family: "IBM Plex Mono", monospace; color: var(--text-1); }
+@media (max-width: 720px) {
+  .snap-grid { grid-template-columns: 1fr; gap: 14px; }
+  .snap-item { padding: 0; border-left: none; }
+}
 
 /* ---------- KPI strip ---------- */
 .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: var(--space); }
@@ -289,7 +300,10 @@ th, td { border-bottom: 1px solid var(--line-2); text-align: left; padding: 9px 
 th { color: var(--text-2); font-weight: 500; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; }
 td.pos { color: var(--success); } td.neg { color: var(--danger); }
 .muted-label { font-size: 0.72rem; color: var(--text-2); }
-.smooth-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--text-1); }
+.seg { display: inline-flex; background: rgba(1, 12, 21, 0.55); border: 1px solid var(--line); border-radius: 9px; padding: 2px; gap: 2px; }
+.seg-btn { border: none; background: transparent; color: var(--text-2); font-family: inherit; font-size: 0.76rem; padding: 5px 13px; border-radius: 7px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.seg-btn:hover { color: var(--text-0); }
+.seg-btn.active { background: var(--accent); color: #052323; font-weight: 600; }
 
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 18px; bottom: 18px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }

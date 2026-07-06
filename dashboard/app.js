@@ -13,6 +13,7 @@ const state = {
   feedFilter: "all",
   personFilter: null,
   lastTimeline: [],
+  smooth: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -37,7 +38,7 @@ const el = {
   marketMovers: $("marketMovers"),
   topStories: $("topStories"),
   timelineChart: $("timelineChart"),
-  smoothToggle: $("smoothToggle"),
+  timelineMode: $("timelineMode"),
   // feed
   feedFilters: $("feedFilters"),
   feedHeader: $("feedHeader"),
@@ -172,11 +173,102 @@ function movingAverage(values, w) {
   });
 }
 
+function shorten(s, n) {
+  s = (s || "").trim();
+  return s.length > n ? s.slice(0, n).trim() + "…" : s;
+}
+
+// Fill missing days so the line breaks over gaps and we can shade "no news".
+function densifyDaily(timeline) {
+  if (!timeline.length) return [];
+  const byDay = new Map();
+  timeline.forEach((p) => byDay.set((p.bucket_start || "").slice(0, 10), p));
+  const keys = [...byDay.keys()].filter(Boolean).sort();
+  if (!keys.length) return [];
+  const out = [];
+  const d = new Date(keys[0] + "T00:00:00Z");
+  const end = new Date(keys[keys.length - 1] + "T00:00:00Z");
+  while (d <= end) {
+    const key = d.toISOString().slice(0, 10);
+    const p = byDay.get(key);
+    out.push({
+      date: key,
+      value: p ? p.weighted_sentiment : null,
+      count: p ? p.item_count || 0 : 0,
+      conf: p ? p.confidence_score || 0 : 0,
+    });
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function itemsByDate() {
+  const m = {};
+  ((state.query && state.query.items) || []).forEach((it) => {
+    const k = (it.published_at || "").slice(0, 10);
+    if (!k) return;
+    (m[k] = m[k] || []).push(it);
+  });
+  return m;
+}
+
+// Annotate the strongest positive peak and negative dip with the day's top story.
+function timelineAnnotations(dense) {
+  const pts = dense.filter((d) => d.value != null && d.count > 0);
+  if (pts.length < 2) return [];
+  const maxP = pts.reduce((a, b) => (b.value > a.value ? b : a));
+  const minP = pts.reduce((a, b) => (b.value < a.value ? b : a));
+  const byDate = itemsByDate();
+  const mk = (p, up) => {
+    const it = (byDate[p.date] || []).slice().sort((a, b) => (b.impact_score || 0) - (a.impact_score || 0))[0];
+    const label = it ? shorten(it.title, 30) : up ? "Sentiment peak" : "Sentiment dip";
+    return {
+      x: p.date, y: p.value, text: (up ? "▲ " : "▼ ") + label, showarrow: true,
+      arrowhead: 2, arrowsize: 0.8, arrowwidth: 1.1, arrowcolor: up ? "#7ee08a" : "#ff7b7b",
+      ax: 0, ay: up ? -30 : 30, font: { size: 10, color: "#eaf4ff" }, align: "center",
+      bgcolor: "rgba(10,20,32,0.92)", bordercolor: up ? "rgba(126,224,138,0.5)" : "rgba(255,123,123,0.5)",
+      borderwidth: 1, borderpad: 4,
+    };
+  };
+  const out = [];
+  if (maxP.value > 0.05) out.push(mk(maxP, true));
+  if (minP.value < -0.05 && minP.date !== maxP.date) out.push(mk(minP, false));
+  return out;
+}
+
+// Grey bands over runs of no-data days (Option B).
+function noDataRegions(dense) {
+  const shapes = [], anns = [];
+  let i = 0;
+  while (i < dense.length) {
+    if (dense[i].value == null) {
+      let j = i;
+      while (j + 1 < dense.length && dense[j + 1].value == null) j++;
+      shapes.push({
+        type: "rect", xref: "x", yref: "paper", x0: dense[i].date, x1: dense[j].date,
+        y0: 0, y1: 1, fillcolor: "rgba(130,150,170,0.07)", line: { width: 0 }, layer: "below",
+      });
+      if (j - i >= 2) {
+        anns.push({
+          x: dense[Math.floor((i + j) / 2)].date, y: 0.08, yref: "paper", text: "no news",
+          showarrow: false, font: { size: 9, color: "rgba(200,215,230,0.45)" },
+        });
+      }
+      i = j + 1;
+    } else i++;
+  }
+  return { shapes, anns };
+}
+
 function renderTimeline(timeline) {
-  const x = timeline.map((p) => p.bucket_start);
-  const y = timeline.map((p) => p.weighted_sentiment);
-  const counts = timeline.map((p) => p.item_count || 0);
-  const conf = timeline.map((p) => p.confidence_score || 0);
+  const isDay = (el.bucket ? el.bucket.value : "day") !== "hour";
+  const dense = isDay
+    ? densifyDaily(timeline)
+    : timeline.map((p) => ({ date: p.bucket_start, value: p.weighted_sentiment, count: p.item_count || 0, conf: p.confidence_score || 0 }));
+  const x = dense.map((d) => d.date);
+  const y = dense.map((d) => d.value);
+  const counts = dense.map((d) => d.count);
+  const conf = dense.map((d) => d.conf);
 
   // Padded, symmetric-ish y range so the line breathes and 0 stays meaningful.
   const finite = y.filter((v) => typeof v === "number");
@@ -198,7 +290,7 @@ function renderTimeline(timeline) {
   const area = {
     x, y, type: "scatter", mode: "lines", name: "Sentiment",
     line: { color: "#49c6b4", width: 2.6, shape: "spline", smoothing: 0.6 },
-    fill: "tozeroy", fillcolor: "rgba(73,198,180,0.09)", connectgaps: false,
+    fill: "tozeroy", fillcolor: "rgba(73,198,180,0.09)", connectgaps: true,
     hoverinfo: "skip",
   };
   // Sign-coloured points carry the hover detail (sentiment + articles + confidence).
@@ -209,33 +301,37 @@ function renderTimeline(timeline) {
       color: y.map(dotColor),
       line: { color: "rgba(7,16,27,0.85)", width: 1.2 },
     },
-    customdata: timeline.map((p) => [p.item_count || 0, p.confidence_score || 0]),
+    customdata: dense.map((d) => [d.count, d.conf]),
     hovertemplate: "<b>%{y:.2f}</b> sentiment<br>%{customdata[0]} articles · conf %{customdata[1]:.2f}<extra></extra>",
   };
 
   const traces = [vol, area, dots];
-  if (el.smoothToggle && el.smoothToggle.checked) {
+  if (state.smooth) {
     traces.push({
       x, y: movingAverage(y, 3), mode: "lines", name: "Trend",
       line: { color: "#ffc857", width: 1.8, dash: "dot", shape: "spline" },
-      connectgaps: false, hoverinfo: "skip",
+      connectgaps: true, hoverinfo: "skip",
     });
   }
 
+  const gaps = isDay ? noDataRegions(dense) : { shapes: [], anns: [] };
   const shapes = [
     // faint polarity bands: green above zero, red below
     { type: "rect", xref: "paper", x0: 0, x1: 1, y0: 0, y1: yr[1], fillcolor: "rgba(126,224,138,0.045)", line: { width: 0 }, layer: "below" },
     { type: "rect", xref: "paper", x0: 0, x1: 1, y0: yr[0], y1: 0, fillcolor: "rgba(255,123,123,0.045)", line: { width: 0 }, layer: "below" },
+    ...gaps.shapes,
     // zero baseline
     { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "rgba(234,244,255,0.22)", width: 1, dash: "dot" } },
   ];
+  const annotations = [...gaps.anns, ...timelineAnnotations(dense)];
 
   Plotly.newPlot(el.timelineChart, traces, {
     ...PLOT_LAYOUT,
-    margin: { l: 44, r: 18, b: 34, t: 10 },
+    margin: { l: 44, r: 18, b: 38, t: 30 },
     showlegend: false,
     hovermode: "x unified",
     shapes,
+    annotations,
     bargap: 0.55,
     yaxis: {
       range: yr, zeroline: false, tickformat: ".1f", tickfont: { size: 10 },
@@ -499,7 +595,14 @@ function renderSnapshot() {
   const ag = state.agreement;
 
   const line = (icon, label, value) =>
-    `<div class="snap-item"><span class="snap-ic">${icon}</span><div><p>${label}</p><strong>${value}</strong></div></div>`;
+    `<div class="snap-item"><span class="snap-ic">${icon}</span><div class="snap-body"><p>${label}</p><strong>${value}</strong></div></div>`;
+
+  const ICON = {
+    story: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>',
+    mover: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M14 7h6v6"/></svg>',
+    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 015.7 5.7l-1 1"/><path d="M13 18l-1 1A4 4 0 016.3 13.3l1-1"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+  };
 
   const topStory = top
     ? `${esc((top.title || "").slice(0, 70))}${(top.title || "").length > 70 ? "…" : ""} <span class="snap-pill">impact ${Number(top.impact_score || 0).toFixed(2)}</span>`
@@ -515,10 +618,10 @@ function renderSnapshot() {
   el.snapshot.innerHTML = `
     <div class="snap-head"><span class="eyebrow">Market Snapshot</span><span class="snap-co">${esc(q.company || "")}</span></div>
     <div class="snap-grid">
-      ${line("📰", "Top Story", topStory)}
-      ${line("🎙", "Top Market Mover", moverTxt)}
-      ${line("🔗", "Strongest Sector Link", llTxt)}
-      ${line("✓", "Validation Agreement", agTxt)}
+      ${line(ICON.story, "Top Story", topStory)}
+      ${line(ICON.mover, "Top Market Mover", moverTxt)}
+      ${line(ICON.link, "Strongest Sector Link", llTxt)}
+      ${line(ICON.check, "Validation Agreement", agTxt)}
     </div>`;
 }
 
@@ -905,7 +1008,15 @@ function bindEvents() {
       renderFeed();
     };
   });
-  if (el.smoothToggle) el.smoothToggle.onchange = () => renderTimeline(state.lastTimeline || []);
+  if (el.timelineMode) {
+    el.timelineMode.querySelectorAll(".seg-btn").forEach((b) => {
+      b.onclick = () => {
+        state.smooth = b.dataset.mode === "smoothed";
+        el.timelineMode.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+        renderTimeline(state.lastTimeline || []);
+      };
+    });
+  }
 }
 
 (async function bootstrap() {

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=8" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
@@ -86,7 +86,10 @@
       <article class="panel">
         <div class="panel-head">
           <h2>Sentiment Timeline</h2>
-          <label class="smooth-toggle"><input type="checkbox" id="smoothToggle" /> Smooth (3-pt trend)</label>
+          <div class="seg" id="timelineMode" role="group" aria-label="Timeline view">
+            <button class="seg-btn active" data-mode="daily">Daily</button>
+            <button class="seg-btn" data-mode="smoothed">Smoothed</button>
+          </div>
         </div>
         <div id="timelineChart" class="chart"></div>
       </article>
@@ -177,6 +180,6 @@
     </section>
   </main>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
