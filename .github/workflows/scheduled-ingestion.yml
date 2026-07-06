@@ -1,9 +1,8 @@
 name: Scheduled Ingestion
 
 on:
-  schedule:
-    # Every 30 minutes
-    - cron: "*/30 * * * *"
+  # Scheduled runs disabled — the free-tier Render app sleeps and cold-start
+  # failures were generating constant failure emails. Trigger manually instead.
   workflow_dispatch:
     inputs:
       backfill_days:

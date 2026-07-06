@@ -1,9 +1,7 @@
 name: Scheduled Price Validation
 
 on:
-  schedule:
-    # Hourly — catches the 1h / 4h / 1d windows as they elapse.
-    - cron: "5 * * * *"
+  # Scheduled runs disabled — see note in scheduled-ingestion.yml.
   workflow_dispatch:
 
 jobs:
